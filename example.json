@@ -1,0 +1,18 @@
+{
+    "serial":        "3933116",
+    "manufacturer":  "canberra",
+    "model":         "GC1018",
+    "preamp":        "7935-7",
+    "bias_voltage":   3500,
+    "slow_ramp":      2500.0,
+    "slow_flat":      1500.0,
+    "fast_ramp":      40.0,
+    "fast_flat":      100.0,
+    "fast_fall":      2000.0,
+    "avse_ramp":      100.0,
+    "t0_thresh":      2.0,
+    "pz_decay":       49700.0,
+    "nbase_samples":  200,
+    "nefit_samples":  300,
+    "ndcr_samples":   100
+}
