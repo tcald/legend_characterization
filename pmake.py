@@ -2,6 +2,7 @@
 
 import os
 import optparse
+import platform
 from multiprocessing.dummy import Pool
 
 rdir = []
@@ -13,12 +14,10 @@ bdir = './bin/'
 
 cflags = '-std=c++11 -m64 -fPIC -Wall -pthread '
 include = '-I./ -I$ROOTSYS/include '
-libs = '`root-config --libs` -ltbb -lMinuit '
+libs = '`root-config --libs` -ltbb -lMinuit -l jsoncpp '
 
 include += '-I$MGDODIR/Transforms -I$MGDODIR/MJDB -I$MGDODIR/Base -I$MGDODIR/Root -I$MGDODIR/Majorana -I$MGDODIR/tam/inc -I$MGDODIR/tam/include -I$MGDODIR/Tabree '
 libs += '-L$MGDODIR/lib -l MGDOTransforms -lMGDOMJDB -lMGDORoot -lMGDOBase -lMGDOMajorana -lMGDOTabree '
-
-libs += '/usr/local/lib/libjsoncpp.a '
 
 debug = False
 clean = False
