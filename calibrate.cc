@@ -26,11 +26,13 @@ using namespace std;
 
 TDirectory* tdir;
 
+// convenience function for printing calibration parameters
 void print_value(string name, int prec, double val, double uncert){
   cout << "  " << name << ": " << setprecision(prec) << val
        << "+/-" << setprecision(prec) << uncert << endl;
 }
 
+// just a placeholder for a better algorithm
 void Th_scale(TH1D* h, double& offset, double& scale){
   double max0 = 0.0, max1 = 0.0;
   double maxbin0 = 0, maxbin1 = 0;
@@ -41,7 +43,7 @@ void Th_scale(TH1D* h, double& offset, double& scale){
       max0 = val;
       maxbin0 = adc;
     }
-    if(val > max1 && adc > 3000){
+    if(val > max1 && adc > 1200){
       max1 = val;
       maxbin1 = adc;
     }
@@ -50,6 +52,7 @@ void Th_scale(TH1D* h, double& offset, double& scale){
   offset = 2615 - scale*maxbin1;
 }
 
+// should be identical as above, but use the Co peaks
 void Co_scale(TH1D* h, double& offset, double& scale){
   h->GetNbinsX();
   offset = 0.0;
@@ -64,6 +67,7 @@ int main(int argc, char* argv[]){
   gStyle->SetTitleFont(132, "XYZ");
   tdir = gROOT->CurrentDirectory();
 
+  // Tl peaks to use for the rise time correction
   const vector<double> tl_peaks({338.0, 510.5, 583.0, 726.5,
 	794.0, 860.0, 911.0, 968.0, 2615.0});
 
@@ -75,6 +79,7 @@ int main(int argc, char* argv[]){
   bool json_config = false;
   string jfile = "calibrate.json";
   Json::Value jvalue;
+  bool use_fixedt = true;
   static struct option opts[]{
     {"help",             no_argument, NULL, 'h'},
     {"channel",    required_argument, NULL, 'c'},
@@ -82,19 +87,21 @@ int main(int argc, char* argv[]){
     {"outfile",    required_argument, NULL, 'o'},
     {"source",     required_argument, NULL, 's'},
     {"jsonconfig", required_argument, NULL, 'j'},
-    {"jsonfile",   required_argument, NULL, 'J'}
+    {"jsonfile",   required_argument, NULL, 'J'},
+    {"fixedtime",        no_argument, NULL, 'f'}
   };
-  int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:", opts, NULL);
+  int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:f", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
-      cout << "options:"                             << endl;
-      cout << "  -c channel to be analyzed"          << endl;
-      cout << "  -i input filename"                  << endl;
-      cout << "  -o output filename"                 << endl;
-      cout << "  -s source type (Th or Co)"          << endl;
-      cout << "  -j name of input json config file"  << endl;
-      cout << "  -J name of output json config file" << endl;
+      cout << "options:"                               << endl;
+      cout << "  -c channel to be analyzed"            << endl;
+      cout << "  -i input filename"                    << endl;
+      cout << "  -o output filename"                   << endl;
+      cout << "  -s source type (Th or Co)"            << endl;
+      cout << "  -j name of input json config file"    << endl;
+      cout << "  -J name of output json config file"   << endl;
+      cout << "  -f do not use the fixed time pickoff" << endl;
     case 'c': chan_map[atoi(optarg)] = (int) chan_map.size()-1; break;
     case 'i': ifname.push_back(string(optarg));                 break;
     case 'o': ofname = string(optarg);                          break;
@@ -111,9 +118,10 @@ int main(int argc, char* argv[]){
       break;
     }
     case 'J': jfile = string(optarg); break;
+    case 'f': use_fixedt = false;     break;
     default: return 1;
     }
-    opt = getopt_long(argc, argv, "hc:i:o:s:j:J:", opts, NULL);
+    opt = getopt_long(argc, argv, "hc:i:o:s:j:J:f", opts, NULL);
   }
   assert(chan_map.size()>0 && ofname != "" && ifname.size() > 0);
   assert(json_config || source == "Th" || source == "Co");
@@ -132,6 +140,7 @@ int main(int argc, char* argv[]){
   vector<TH2D*> hdecay_deltat(chan_map.size(), NULL);
   vector<TH2D*> hamp_energy(chan_map.size(), NULL);
   vector<TH2D*> hamps_energy(chan_map.size(), NULL);
+  vector<TH2D*> haoe_energy(chan_map.size(), NULL);
   vector<TH2D*> hdcr_energy(chan_map.size(), NULL);
   vector<TH2D*> hdcrs_energy(chan_map.size(), NULL);
   vector<TH2D*> hrise_energy(chan_map.size(), NULL);
@@ -161,15 +170,17 @@ int main(int argc, char* argv[]){
   intree->SetBranchStatus("channel", true);
   intree->SetBranchStatus("imax", true);
   intree->SetBranchStatus("trappick", true);
+  intree->SetBranchStatus("trapmax", true);
   intree->SetBranchStatus("dcrslope", true);
   TTreeReader reader(intree);
   TTreeReaderValue<vector<int> > channel(reader, "channel");
   TTreeReaderValue<vector<double> > trappick(reader, "trappick");
+  TTreeReaderValue<vector<double> > trapmax(reader, "trapmax");
   TTreeReaderValue<vector<double> > imax(reader, "imax");
   TTreeReaderValue<vector<double> > dcrslope(reader, "dcrslope");
   TTreeReaderValue<vector<double> > t1(reader, "t1");
   TTreeReaderValue<vector<double> > t99(reader, "t99");
-
+  
   // values and histograms to output
   vector<double> base_mean(chan_map.size(), 0.0);
   vector<double> brms_mean(chan_map.size(), 0.0);
@@ -199,7 +210,7 @@ int main(int argc, char* argv[]){
   // output tree setup
   vector<int> chan;
   vector<double> baseSigma, brmsSigma, timestamp, dt, T0, trise;
-  vector<double> trapECal, trapEFCal, trapEFRCal, avse, dcr;
+  vector<double> trapECal, trapEFCal, trapEFRCal, avse, aoe, dcr;
   TFile* outfile = new TFile(ofname.c_str(), "recreate");
   tdir->cd();
   TTree* outtree = new TTree("tree", "tree");
@@ -214,11 +225,12 @@ int main(int argc, char* argv[]){
   outtree->Branch("trapEFCal", &trapEFCal);
   outtree->Branch("trapEFRCal", &trapEFRCal);
   outtree->Branch("avse", &avse);
+  outtree->Branch("aoe", &aoe);
   outtree->Branch("dcr", &dcr);
   outtree->SetDirectory(outfile);
 
   // grab the calibration parameters if reading from an input configuration
-  // otherwise comput them from the input data
+  // otherwise compute them from the input data
   if(json_config){
     SetJson(jvalue, "base_mean",  base_mean);
     SetJson(jvalue, "base_rms",   base_rms);
@@ -276,7 +288,7 @@ int main(int argc, char* argv[]){
 	hecal[i]->SetBinContent(bin, henergy[i]->GetBinContent(bin));
       hecal[i]->SetXTitle("Energy (keV)");
       hecal[i]->SetYTitle("Entries");
-    // dcr slope correction
+      // dcr slope correction
       TProfile* dcr_prof = hdcr_energy[i]->ProfileX(("hdcr_prof_" +
 						     to_string(i)).c_str());
       TF1* fdcr = new TF1("fdcr", "[0]+[1]*x",0.0,dcr_prof->GetXaxis()->GetXmax());
@@ -285,10 +297,12 @@ int main(int argc, char* argv[]){
       dcre_slope[i]   = fdcr->GetParameter(1);
       dcre_uncert[i] = fdcr->GetParError(1);
     }
-    
+
+    // calibrate AvsE and DCR
     cout << "calibrating avse and dcr" << endl;
     for(int ich=0; ich<(int)hamps_energy.size(); ich++){
-      hamps_energy[ich] = new TH2D(("hamps_energy_"+to_string(ich)).c_str(), "",
+      // 2d histograms to populate with the calibrated energy
+      hamps_energy[ich] = new TH2D(("hamps_energy_"+to_string(ich)).c_str(),"",
 				   hecal[ich]->GetXaxis()->GetNbins(),
 				   hecal[ich]->GetXaxis()->GetXmin(),
 				   hecal[ich]->GetXaxis()->GetXmax(),
@@ -297,7 +311,7 @@ int main(int argc, char* argv[]){
 				   hamp_energy[ich]->GetYaxis()->GetXmax());
       hamps_energy[ich]->SetXTitle("Energy (keV)");
       hamps_energy[ich]->SetYTitle("A * E/E_{unc}");
-      hdcrs_energy[ich] = new TH2D(("hdcrs_energy_"+to_string(ich)).c_str(), "",
+      hdcrs_energy[ich] = new TH2D(("hdcrs_energy_"+to_string(ich)).c_str(),"",
 				   hecal[ich]->GetXaxis()->GetNbins(),
 				   hecal[ich]->GetXaxis()->GetXmin(),
 				   hecal[ich]->GetXaxis()->GetXmax(),
@@ -306,16 +320,37 @@ int main(int argc, char* argv[]){
 				   hdcr_energy[ich]->GetYaxis()->GetXmax());
       hdcrs_energy[ich]->SetXTitle("Energy (keV)");
       hdcrs_energy[ich]->SetYTitle("DCR Slope");
+      haoe_energy[ich] = new TH2D(("haove_energy_"+to_string(ich)).c_str(), "",
+				  hecal[ich]->GetXaxis()->GetNbins(),
+				  hecal[ich]->GetXaxis()->GetXmin(),
+				  hecal[ich]->GetXaxis()->GetXmax(),
+				  hecal[ich]->GetXaxis()->GetNbins(),
+				  hecal[ich]->GetXaxis()->GetXmin(),
+				  hecal[ich]->GetXaxis()->GetXmax());
+      haoe_energy[ich]->SetXTitle("Energy (keV)");
+      haoe_energy[ich]->SetYTitle("A / E");
     }
+    // populate the histograms
     while(reader.Next())
       for(int ich=0; ich<(int)channel->size(); ich++){
-	double E = trappick->at(ich)*efscale[ich] + efoffset[ich];
-	hamps_energy[ich]->Fill(E, imax->at(ich)*E/trappick->at(ich));
-	hdcrs_energy[ich]->Fill(E, dcrslope->at(ich)-
-				dcre_slope[ich]*trappick->at(ich));
+	if(use_fixedt){
+	  double E = trappick->at(ich)*efscale[ich] + efoffset[ich];
+	  hamps_energy[ich]->Fill(E, imax->at(ich)*E/trappick->at(ich));
+	  haoe_energy[ich]->Fill(E, imax->at(ich)/trappick->at(ich));
+	  hdcrs_energy[ich]->Fill(E, dcrslope->at(ich)-
+				  dcre_slope[ich]*trappick->at(ich));
+	}
+	else{
+	  double E = trapmax->at(ich)*escale[ich] + eoffset[ich];
+	  hamps_energy[ich]->Fill(E, imax->at(ich)*E/trapmax->at(ich));
+	  haoe_energy[ich]->Fill(E, imax->at(ich)/trapmax->at(ich));
+	  hdcrs_energy[ich]->Fill(E, dcrslope->at(ich)-
+				  dcre_slope[ich]*trapmax->at(ich)); 
+	}
       }
     for(auto const& p : chan_map){
       int i = p.second;
+      // get the AvsE profile by fitting in slices of energy
       int navsebins = (2550-50)/50;
       vector<double> avsex;
       vector<double> avsey;
@@ -349,6 +384,7 @@ int main(int argc, char* argv[]){
 	delete h;
 	delete f;
       }
+      // fit to the AvsE profile with a quadratic
       TGraphErrors* g = new TGraphErrors(avsex.size(),
 					 &avsex.front(),  &avsey.front(),
 					 &avsexe.front(), &avseye.front());
@@ -368,6 +404,7 @@ int main(int argc, char* argv[]){
       }
       gavse[i] = g;
       delete f;
+      // get AvsE distributions near the DEP, and do sideband subtraction
       TAxis* axis = hamps_energy[i]->GetXaxis();
       TH1D* havse0 = hamps_energy[i]->ProjectionY("havse0",
 						  axis->FindBin(2615-2*511-10.),
@@ -384,6 +421,7 @@ int main(int argc, char* argv[]){
 	if(j>1) havse0->SetBinContent(j, havse0->GetBinContent(j)+
 				      havse0->GetBinContent(j-1));
       }
+      // set the AvsE calibration parameters to 90% DEP acceptance
       double aint = havse0->GetMaximum();
       for(int j=1; j<=(int)havse0->GetNbinsX(); j++)
 	if(havse0->GetBinContent(j)/aint > 0.1){
@@ -400,6 +438,7 @@ int main(int argc, char* argv[]){
       delete havse0;
       delete havse1;
       delete havse2;
+      // find the upper and lower DCR cuts for 98% acceptance
       TH1D* hdcr_proj =
 	hdcrs_energy[i]->ProjectionY("hdcr_proj",
 				     hdcrs_energy[i]->GetXaxis()->FindBin(500),
@@ -416,7 +455,8 @@ int main(int argc, char* argv[]){
       }
       delete hdcr_proj;
     }
-    
+
+    // compute the rise time correction (work in progress)
     cout << "computing rise time correction" << endl;
     reader.Restart();
     intree->SetBranchStatus("t1", true);
@@ -434,7 +474,8 @@ int main(int argc, char* argv[]){
     }
     while(reader.Next())
       for(int ich=0; ich<(int)channel->size(); ich++){
-	double E = trappick->at(ich)*escale[ich] + eoffset[ich];
+	double E = trappick->at(ich)*efscale[ich] + efoffset[ich];
+	if(!use_fixedt) E = trapmax->at(ich)*escale[ich] + eoffset[ich];
 	double avse = avse_param[ich][0] + avse_param[ich][1]*E;
 	avse += avse_param[ich][2]*pow(E,2) - imax->at(ich);
 	if(avse/avse_param[ich][3] <= -1.0) continue;
@@ -474,7 +515,8 @@ int main(int argc, char* argv[]){
       trise_slope[ich] = fconst->GetParameter(0);
       trise_suncert[ich] = fconst->GetParError(0);
     }
-    
+
+    // print the calibration parameters
     for(auto const& p : chan_map){
       int i = p.second;
       cout << "channel 0:  " << endl;
@@ -506,11 +548,11 @@ int main(int argc, char* argv[]){
   TTreeReaderValue<vector<double> > t10(reader, "t10");
   TTreeReaderValue<vector<double> > t50(reader, "t50");
   TTreeReaderValue<vector<double> > t90(reader, "t90");
-  TTreeReaderValue<vector<double> > trapmax(reader, "trapmax");
   TTreeReaderValue<vector<double> > times(reader, "time");
   TTreeReaderValue<vector<double> > deltat(reader, "deltat");
   TTreeReaderValue<vector<vector<double> > > exp_param(reader, "exp_param");
 
+  // apply the calibration parameters to the relevant input values
   cout << "applying calibration parameters to input trees" << endl;
   int iev = -1;
   while(reader.Next()){
@@ -528,6 +570,7 @@ int main(int argc, char* argv[]){
     trapEFCal.assign(nwf, 0.0);
     trapEFRCal.assign(nwf, 0.0);
     avse.assign(nwf, 0.0);
+    aoe.assign(nwf, 0.0);
     dcr.assign(nwf, 0.0);
     for(int ich=0; ich<nwf; ich++){
       chan[ich] = channel->at(ich);
@@ -538,13 +581,17 @@ int main(int argc, char* argv[]){
       dt[ich] = deltat->at(ich);
       trise[ich] = t99->at(ich)-t1->at(ich);
       trapECal[ich] = trapmax->at(ich)*escale[ich]+eoffset[ich];
-      trapEFCal[ich] = trappick->at(ich)*efscale[ich]+efoffset[ich];
+      if(use_fixedt)
+	trapEFCal[ich] = trappick->at(ich)*efscale[ich]+efoffset[ich];
+      else
+	trapEFCal[ich] = trapmax->at(ich)*escale[ich]+eoffset[ich];
       trapEFRCal[ich] = trapEFCal[ich] + ((trise_val[ich] -
 					   trise[ich])) / trise_slope[ich];
       avse[ich] = avse_param[ich][0] + avse_param[ich][1]*trapEFCal[ich];
       avse[ich] += avse_param[ich][2]*pow(trapEFCal[ich], 2);
-      avse[ich] -= imax->at(ich)*trapEFCal[ich]/trappick->at(ich);
+      avse[ich] -= imax->at(ich)*trapEFCal[ich]/trapEFCal[ich];
       avse[ich] /= avse_param[ich][3];
+      aoe[ich] = imax->at(ich) / trapEFCal[ich];
       dcr[ich] = dcrslope->at(ich)-dcre_slope[ich]*trappick->at(ich);
       dcr[ich] = dcr[ich]*2/(dcr_cut_hi[ich]-dcr_cut_lo[ich]);
       dcr[ich] += (dcr_cut_lo[ich]+dcr_cut_hi[ich])/

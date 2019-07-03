@@ -71,7 +71,6 @@ int main(int argc, char* argv[]){
   int run_end = -1;
   string infname = "";
   bool fit_tail = true;
-  bool json_config = false;
   bool float_pz = true;
   int nbits = 16;
   int write_wf = 0;
@@ -151,7 +150,6 @@ int main(int argc, char* argv[]){
       SetJson(value, "nefit_samples", nefit_samples);
       SetJson(value, "ndcr_samples",  ndcr_samples);
       if(SetJson(value, "pz_decay", pz_decay)) float_pz = false;
-      json_config = true;
       break;
     }
     case 'u': update_percentage = atoi(optarg); break;
@@ -161,9 +159,9 @@ int main(int argc, char* argv[]){
 		      "hd:c:n:o:f:r:R:i:Fb:w:D:j:u:", opts, NULL);
   }
   assert(infname != "" || (run_start > 0 && run_end > 0));
-  if(rc_decay != 0.0 && json_config){
+  if(rc_decay != 0.0){
     pz_decay = rc_decay;
-    float_pz = false;
+    float_pz = true;
     cout << "over-riding default pz constant with user-specified value "
 	 << pz_decay << " ns" << endl;
   }
@@ -332,7 +330,7 @@ int main(int argc, char* argv[]){
       MGTWaveform* wf = (MGTWaveform*) wfs->At(iwf);
       TH1D* hwf_orig = NULL;
       if(write) hwf_orig = wf->GimmeUniqueHist();
-      time[index] = event->GetTime() + wf->GetTOffset();
+      time[index] = (event->GetTime() + wf->GetTOffset())/1e9;
       deltat[index] = time[index] - tlast[index];
       hdeltat[index]->Fill(deltat[index] * 1e6);
       double sampling = wf->GetSamplingPeriod();
@@ -461,7 +459,7 @@ int main(int argc, char* argv[]){
       t90[index]= min(max(t50[index], t90[index]), (double)vft.size());
       t99[index]= min(max(t90[index], t99[index]), (double)vft.size());
       // fixed time energy pickoff
-      int pickoff = t0[index] + (int) (slow_ramp+slow_flat-400)/sampling;
+      int pickoff = t0[index] + (int) (slow_ramp+0.75*slow_flat)/sampling;
       if(pickoff < 0 || pickoff >= (int) vst.size()) trappick[index] = 0;
       else trappick[index] = vst[pickoff];
       henergy[index]->Fill(trapmax[index]);
@@ -542,8 +540,8 @@ int main(int argc, char* argv[]){
       if(at)  delete at;
     }
     outtree->Fill();
-    if(iev < nentries-1) delete wfs;
-    if(iev < nentries-1) delete event->GetDigitizerData();
+    //if(iev < nentries-1) delete wfs;
+    //if(iev < nentries-1) delete event->GetDigitizerData();
     //event->ClearEventData();
   }
   if(pole_zero) delete pole_zero;
