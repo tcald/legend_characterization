@@ -115,7 +115,10 @@ int main(int argc, char* argv[]){
       cout << "  -u update interval (percentage)"    << endl;
       return 0;
     case 'd': base_dir  = string(optarg); break;
-    case 'c': chan_map[atoi(optarg)] = (int) chan_map.size()-1; break;
+    case 'c':{
+      unsigned i = chan_map.size();
+      chan_map[atoi(optarg)] = (int) i;     break;
+    }
     case 'n': max_wf      = atoi(optarg);   break;
     case 'o': outfname    = string(optarg); break;
     case 'f': fnamebase   = string(optarg); break;
