@@ -9,7 +9,7 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   TTreeReader reader(tree);
   TTreeReaderValue<vector<int> > channel(reader, "channel");
   TTreeReaderValue<vector<double> > baseSigma(reader, "baseSigma");
-  TTreeReaderValue<vector<double> > brmsSigma(reader, "brmsSigma");
+  TTreeReaderValue<vector<double> > nbaserms(reader, "nbaserms");
   TTreeReaderValue<vector<double> > time(reader, "time");
   TTreeReaderValue<vector<double> > deltat(reader, "deltat");
   TTreeReaderValue<vector<double> > t0(reader, "t0");
@@ -42,8 +42,8 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   
   while(reader.Next()){
     if(index > channel->size()) continue;
-    if(abs(baseSigma->at(index)) > 3) continue;
-    if(abs(brmsSigma->at(index)) > 3) continue;
+    if(abs(baseSigma->at(index)) > 5) continue;
+    if(abs(nbaserms->at(index)) > 5) continue;
     he->Fill(trapECal->at(index));
     hef->Fill(trapEFCal->at(index));
     havse->Fill(trapEFCal->at(index), avse->at(index));

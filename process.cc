@@ -116,16 +116,16 @@ int main(int argc, char* argv[]){
       return 0;
     case 'd': base_dir  = string(optarg); break;
     case 'c': chan_map[atoi(optarg)] = (int) chan_map.size()-1; break;
-    case 'n': max_wf    = atoi(optarg);   break;
-    case 'o': outfname  = string(optarg); break;
-    case 'f': fnamebase = string(optarg); break;
-    case 'r': run_start = atoi(optarg);   break;
-    case 'R': run_end   = atoi(optarg);   break;
-    case 'i': infname   = string(optarg); break;
-    case 'F': fit_tail  = false;          break;
-    case 'b': nbits     = atoi(optarg);   break;
-    case 'w': write_wf  = atoi(optarg);   break;
-    case 'D': rc_decay  = atof(optarg);   break;
+    case 'n': max_wf      = atoi(optarg);   break;
+    case 'o': outfname    = string(optarg); break;
+    case 'f': fnamebase   = string(optarg); break;
+    case 'r': run_start   = atoi(optarg);   break;
+    case 'R': run_end     = atoi(optarg);   break;
+    case 'i': infname     = string(optarg); break;
+    case 'F': fit_tail    = false;          break;
+    case 'b': nbits       = atoi(optarg);   break;
+    case 'w': write_wf    = atoi(optarg);   break;
+    case 'D': rc_decay    = atof(optarg);   break;
     case 'j':{
       ifstream jfile(optarg);
       Json::CharReaderBuilder reader;
@@ -215,53 +215,63 @@ int main(int argc, char* argv[]){
   vector<TH2D*> hamp_energy(chan_map.size(), NULL);
   vector<TH2D*> hdcr_energy(chan_map.size(), NULL);
   vector<TH2D*> hrise_energy(chan_map.size(), NULL);
+  vector<TH2D*> hamp_energyf(chan_map.size(), NULL);
+  vector<TH2D*> hdcr_energyf(chan_map.size(), NULL);
+  vector<TH2D*> hrise_energyf(chan_map.size(), NULL);
   int adcbins = (1<<nbits) / 16;
   for(int i=0; i<(int)hbase_energy.size(); i++){
-    hdeltat[i] = new TH1D(("hdeltat_"+to_string(chan_map[i])).c_str(), "",
+    int ch = chan_map[i];
+    hdeltat[i] = new TH1D(("hdeltat_"+to_string(ch)).c_str(), "",
 			  1e5, 0.0, 10000.0);
     hdeltat[i]->SetXTitle("Delta t (#mu s)");
     hdeltat[i]->SetYTitle("Entries");
-    henergy[i] = new TH1D(("henergy_"+to_string(chan_map[i])).c_str(), "",
+    henergy[i] = new TH1D(("henergy_"+to_string(ch)).c_str(), "",
 			  1<<nbits, 0.0, 1<<nbits);
     henergy[i]->SetXTitle("Trap Maximum (ADC)");
     henergy[i]->SetYTitle("Entries");
-    henergyf[i] = new TH1D(("henergyf_"+to_string(chan_map[i])).c_str(), "",
+    henergyf[i] = new TH1D(("henergyf_"+to_string(ch)).c_str(), "",
 			   1<<nbits, 0.0, 1<<nbits);
     henergyf[i]->SetXTitle("Fixed Time Pickoff (ADC)");
     henergyf[i]->SetYTitle("Entries");
-    hbase_energy[i] = new TH2D(("hbase_energy_"+to_string(chan_map[i])).c_str(), "",
+    hbase_energy[i] = new TH2D(("hbase_energy_"+to_string(ch)).c_str(), "",
 			       adcbins, 0.0, 10000.0, 400, -20.0, 20.0);
     hbase_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hbase_energy[i]->SetYTitle("Baseline (ADC)");
-    hbrms_energy[i] = new TH2D(("hbrms_energy_"+to_string(chan_map[i])).c_str(), "",
+    hbrms_energy[i] = new TH2D(("hbrms_energy_"+to_string(ch)).c_str(), "",
 			       adcbins, 0.0, 10000.0, 400, 0.0, 40.0);
     hbrms_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hbrms_energy[i]->SetYTitle("Baseline RMS (ADC)");
     if(fit_tail){
-      hdecay_energy[i] = new TH2D(("hdecay_energy_"+to_string(chan_map[i])).c_str(),
+      hdecay_energy[i] = new TH2D(("hdecay_energy_"+to_string(ch)).c_str(),
 				  "", adcbins, 0.0, 10000.0,
 				  400, 0.0, 100.0);
       hdecay_energy[i]->SetXTitle("Trap Maximum (ADC)");
       hdecay_energy[i]->SetYTitle("Decay Constant (#mu s)");
-      hdecay_deltat[i] = new TH2D(("hdecay_deltat_"+to_string(chan_map[i])).c_str(),
+      hdecay_deltat[i] = new TH2D(("hdecay_deltat_"+to_string(ch)).c_str(),
 				  "", 1000, 0.0, 1000.0, 400, 0.0, 100.0);
       hdecay_deltat[i]->SetYTitle("Decay Constant (#mu s)");
       hdecay_deltat[i]->SetXTitle("#Delta t (#mu s)");
     }
-    hamp_energy[i] = new TH2D(("hamp_energy_"+to_string(chan_map[i])).c_str(), "",
+    hamp_energy[i] = new TH2D(("hamp_energy_"+to_string(ch)).c_str(), "",
 			      adcbins, 0.0, 10000.0, 500, 0.0, 5000.0);
     hamp_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hamp_energy[i]->SetYTitle("Maximum Current");
-    hdcr_energy[i] = new TH2D(("hdcr_energy_"+to_string(chan_map[i])).c_str(), "",
+    hdcr_energy[i] = new TH2D(("hdcr_energy_"+to_string(ch)).c_str(), "",
 			      adcbins, 0.0, 10000.0,
 			      400, -100.0, 100.0);
     hdcr_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hdcr_energy[i]->SetYTitle("Raw DCR Slope");
-    hrise_energy[i] = new TH2D(("hrise_energy_"+to_string(chan_map[i])).c_str(), "",
+    hrise_energy[i] = new TH2D(("hrise_energy_"+to_string(ch)).c_str(), "",
 			       2*adcbins, 0.0, 10000.0,
 			       1000, 0.0, 5000.0);
     hrise_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hrise_energy[i]->SetYTitle("Rise Time (ns)");
+    hamp_energyf[i] = (TH2D*) hamp_energy[i]->Clone(("hamp_energyf_" +
+						     to_string(ch)).c_str());
+    hdcr_energyf[i] = (TH2D*) hdcr_energy[i]->Clone(("hdcr_energyf_" +
+						     to_string(ch)).c_str());
+    hrise_energyf[i] =(TH2D*) hrise_energy[i]->Clone(("hrise_energyf_" +
+						      to_string(ch)).c_str());
   }
 
   // input reader
@@ -277,12 +287,14 @@ int main(int argc, char* argv[]){
   TTreeReaderValue<MGTEvent> event(reader, "event");
 
   MGWFPoleZeroCorrection* pole_zero=new MGWFPoleZeroCorrection();
-  MGWFTrapezoidalFilter* slow_trap=new MGWFTrapezoidalFilter(slow_ramp,slow_flat);
+  MGWFTrapezoidalFilter* slow_trap=new MGWFTrapezoidalFilter(slow_ramp,
+							     slow_flat);
   MGWFAsymTrapezoidalFilter* fast_trap = new MGWFAsymTrapezoidalFilter();
   fast_trap->SetRampTime(fast_ramp);
   fast_trap->SetFlatTime(fast_flat);
   fast_trap->SetFallTime(fast_fall);
-  MGWFTrapezoidalFilter* avse_trap=new MGWFTrapezoidalFilter(avse_ramp,avse_flat);
+  MGWFTrapezoidalFilter* avse_trap=new MGWFTrapezoidalFilter(avse_ramp,
+							     avse_flat);
   
   int iev = -1;
   int cpercent = -1;
@@ -341,7 +353,8 @@ int main(int argc, char* argv[]){
       double base_orig = baseline[index];
       // exponential baseline correction from last event, fit exponential tail
       if(fit_tail){
-	for_each(xfit.begin(), xfit.end(), [&](double& s){s-=deltat[index]*1e9;});
+	for_each(xfit.begin(), xfit.end(),
+		 [&](double& s){s-=deltat[index]*1e9;});
 	for(int i=0; i<nefit_samples; i++){
 	  xfit.push_back(i*sampling);
 	  yfit.push_back(vwf[i]);
@@ -464,16 +477,19 @@ int main(int argc, char* argv[]){
       else trappick[index] = vst[pickoff];
       henergy[index]->Fill(trapmax[index]);
       henergyf[index]->Fill(trappick[index]);
-      hamp_energy[index]->Fill(trappick[index], imax[index]);
-      hrise_energy[index]->Fill(trappick[index],
-				(t99[index]-t1[index])*sampling-fast_ramp);
+      hamp_energy[index]->Fill(trapmax[index], imax[index]);
+      hamp_energyf[index]->Fill(trappick[index], imax[index]);
+      double tr = (t99[index] - t1[index])*sampling - fast_ramp;
+      hrise_energy[index]->Fill(trapmax[index], tr);
+      hrise_energyf[index]->Fill(trappick[index], tr);
       // compute dcr
       int dcr_start = min((int)t99[index], (int)vwff.size()-2*ndcr_samples-1);
       dcrslope[index]  = accumulate(vwff.end()-ndcr_samples, vwff.end(), 0.0);
       dcrslope[index] -= accumulate(vwff.begin()+dcr_start,
 				    vwff.begin()+dcr_start+ndcr_samples, 0.0);
       dcrslope[index] /= vwff.size() - dcr_start - ndcr_samples;
-      hdcr_energy[index]->Fill(trappick[index], dcrslope[index]);
+      hdcr_energy[index]->Fill(trapmax[index], dcrslope[index]);
+      hdcr_energyf[index]->Fill(trappick[index], dcrslope[index]);
       // plot waveform and write to output file
       if(write){
 	for(int i=1; i<=(int)hwf_orig->GetNbinsX(); i++)
@@ -563,6 +579,9 @@ int main(int argc, char* argv[]){
     hamp_energy[i]->Write();
     hdcr_energy[i]->Write();
     hrise_energy[i]->Write();
+    hamp_energyf[i]->Write();
+    hdcr_energyf[i]->Write();
+    hrise_energyf[i]->Write();
   }
   outfile->Close();
     
