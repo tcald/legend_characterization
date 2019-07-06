@@ -16,7 +16,7 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   TTreeReaderValue<vector<double> > trise(reader, "trise");
   TTreeReaderValue<vector<double> > trapECal(reader, "trapECal");
   TTreeReaderValue<vector<double> > trapEFCal(reader, "trapEFCal");
-  TTreeReaderValue<vector<double> > trapEFRCal(reader, "trapEFRCal");
+  //TTreeReaderValue<vector<double> > trapEFRCal(reader, "trapEFRCal");
   TTreeReaderValue<vector<double> > avse(reader, "avse");
   TTreeReaderValue<vector<double> > dcr(reader, "dcr");
 
@@ -30,8 +30,8 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   hefa->SetLineColor(8);
   TH1D* hefd = (TH1D*) he->Clone("hefd");
   hefd->SetLineColor(4);
-  TH1D* hefr = (TH1D*) he->Clone("hefr");
-  hefr->SetLineColor(6);
+  //TH1D* hefr = (TH1D*) he->Clone("hefr");
+  //hefr->SetLineColor(6);
   
   TH2D* havse = new TH2D("havse", "", 1000, 0.0, 5000.0, 400, -20.0, 20.0);
   havse->SetXTitle("Energy (keV)");
@@ -52,7 +52,7 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
       hdcre->Fill(trapEFCal->at(index), dcr->at(index));
       if(dcr->at(index) >= -1.0 && dcr->at(index) < 1.0){
 	hefd->Fill(trapEFCal->at(index));
-	hefr->Fill(trapEFRCal->at(index));
+	//hefr->Fill(trapEFRCal->at(index));
       }
     }
   }
@@ -61,7 +61,7 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   ce->cd(1)->SetLogy(true);
   ce->cd(1);
   he->Draw();
-  hefr->Draw("same");
+  //hefr->Draw("same");
   hef->Draw("same");
   hefa->Draw("same");
   hefd->Draw("same");
@@ -81,7 +81,7 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
     outfile->cd();
     he->Write();
     hef->Write();
-    hefr->Write();
+    //hefr->Write();
     havse->Write();
     ce->Write();
     cavse->Write();

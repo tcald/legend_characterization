@@ -173,7 +173,7 @@ int main(int argc, char* argv[]){
   vector<int>    channel, maxtime, mintime, trapmaxtime;
   vector<double> baseline, baserms, maxval, minval, trappick;
   vector<double> t0, t1, t10, t50, t90, t99, imax, dcrslope;
-  vector<double> trapmax, time, deltat;
+  vector<double> trapmax, time, deltat, stime;
   vector<vector<double> > exp_param;
   TFile* outfile = new TFile(outfname.c_str(), "recreate");
   if(write_wf)
@@ -201,6 +201,7 @@ int main(int argc, char* argv[]){
   outtree->Branch("trappick", &trappick);
   outtree->Branch("time", &time);
   outtree->Branch("deltat", &deltat);
+  outtree->Branch("sampling", &stime);
   outtree->Branch("exp_param", &exp_param);
   outtree->SetDirectory(outfile);
 
@@ -327,6 +328,7 @@ int main(int argc, char* argv[]){
     t50.assign(nwf, 0.0);
     t90.assign(nwf, 0.0);
     t99.assign(nwf, 0.0);
+    stime.assign(nwf, 0.0);
     imax.assign(nwf, 0.0);
     dcrslope.assign(nwf, 0.0);
     trapmax.assign(nwf, 0.0);
@@ -349,6 +351,7 @@ int main(int argc, char* argv[]){
       deltat[index] = time[index] - tlast[index];
       hdeltat[index]->Fill(deltat[index] * 1e6);
       double sampling = wf->GetSamplingPeriod();
+      stime[index] = sampling;
       vector<double> vwf = wf->GetVectorData();
       assert((int)vwf.size()>nbase_samples && (int)vwf.size()>=2*nefit_samples);
       baseline[index] = accumulate(vwf.begin(), vwf.begin()+nbase_samples, 0);
