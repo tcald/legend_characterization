@@ -245,17 +245,15 @@ int main(int argc, char* argv[]){
 			       adcbins, 0.0, 10000.0, 400, 0.0, 40.0);
     hbrms_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hbrms_energy[i]->SetYTitle("Baseline RMS (ADC)");
-    if(fit_tail){
-      hdecay_energy[i] = new TH2D(("hdecay_energy_"+to_string(ch)).c_str(),
-				  "", adcbins, 0.0, 10000.0,
-				  400, 0.0, 100.0);
-      hdecay_energy[i]->SetXTitle("Trap Maximum (ADC)");
-      hdecay_energy[i]->SetYTitle("Decay Constant (#mu s)");
-      hdecay_deltat[i] = new TH2D(("hdecay_deltat_"+to_string(ch)).c_str(),
-				  "", 1000, 0.0, 1000.0, 400, 0.0, 100.0);
-      hdecay_deltat[i]->SetYTitle("Decay Constant (#mu s)");
-      hdecay_deltat[i]->SetXTitle("#Delta t (#mu s)");
-    }
+    hdecay_energy[i] = new TH2D(("hdecay_energy_"+to_string(ch)).c_str(),
+				"", adcbins, 0.0, 10000.0,
+				400, 0.0, 100.0);
+    hdecay_energy[i]->SetXTitle("Trap Maximum (ADC)");
+    hdecay_energy[i]->SetYTitle("Decay Constant (#mu s)");
+    hdecay_deltat[i] = new TH2D(("hdecay_deltat_"+to_string(ch)).c_str(),
+				"", 1000, 0.0, 1000.0, 400, 0.0, 100.0);
+    hdecay_deltat[i]->SetYTitle("Decay Constant (#mu s)");
+    hdecay_deltat[i]->SetXTitle("#Delta t (#mu s)");
     hamp_energy[i] = new TH2D(("hamp_energy_"+to_string(ch)).c_str(), "",
 			      adcbins, 0.0, 10000.0, 500, 0.0, 5000.0);
     hamp_energy[i]->SetXTitle("Trap Maximum (ADC)");
@@ -406,7 +404,8 @@ int main(int argc, char* argv[]){
       if(itmax == vwf.begin() || itmax == vwf.end()) continue;
       // second pass pz correction and adc overshoot correction
       MGTWaveform* pz = new MGTWaveform();
-      pole_zero->SetDecayConstant(exp_param[index][2]);
+      if(fit_tail) pole_zero->SetDecayConstant(exp_param[index][2]);
+      else pole_zero->SetDecayConstant(pz_decay);
       pole_zero->TransformOutOfPlace(*wf, *pz);
       vector<double> vwff = pz->GetVectorData();
       MGTWaveform* wff = pz;
@@ -443,7 +442,8 @@ int main(int argc, char* argv[]){
       hbase_energy[index]->Fill(trapmax[index], baseline[index]);
       hbrms_energy[index]->Fill(trapmax[index], baserms[index]);
       if(fit_tail){
-	hdecay_energy[index]->Fill(trapmax[index], exp_param[index][2]/1000);
+	if(deltat[index]*1e6 < 250)
+	  hdecay_energy[index]->Fill(trapmax[index], exp_param[index][2]/1000);
 	hdecay_deltat[index]->Fill(deltat[index]*1e6,exp_param[index][2]/1000);
       }
       double ftbase = accumulate(vft.begin(), vft.begin()+nbase_samples, 0.0);

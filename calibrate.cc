@@ -33,24 +33,58 @@ void print_value(string name, int prec, double val, double uncert){
 }
 
 // do a two point energy calibration to get the initial scale
-// fixme - this is just a placeholder for a better solution
 void Th_scale(TH1D* h, double& offset, double& scale){
-  double max0 = 0.0, max1 = 0.0;
-  double maxbin0 = 0, maxbin1 = 0;
-  for(int bin=1; bin<=(int)h->GetNbinsX(); bin++){
-    double val = h->GetBinContent(bin);
-    double adc = h->GetBinCenter(bin);
-    if(val > max0){
-      max0 = val;
-      maxbin0 = adc;
-    }
-    if(val > max1 && adc > 1200){
-      max1 = val;
-      maxbin1 = adc;
+  // find the bin below which most of the spectrum lies
+  int bin = 0;
+  for(int i=h->GetNbinsX(); i>200; i--){
+    double c1 = h->Integral(i-199, i-100);
+    double c0 = h->Integral(i-99,  i);
+    if(c0 <= 10.0 || c1 <= 10.0) continue;
+    if(c1-c0 > 20*sqrt(c0)){
+      bin = i+100;
+      break;
     }
   }
-  scale = (2615-238) / (maxbin1-maxbin0);
-  offset = 2615 - scale*maxbin1;
+  // find the maximum in the upper third of that region, assume 2615 keV
+  int bin1 = 0;
+  double mval = 0.0;
+  for(int i=max(1, (int)(2.*bin/3)); i<bin; i++)
+    if(h->GetBinContent(i) > mval){
+      mval = h->GetBinContent(i);
+      bin1 = i;
+    }
+  double bk = bin / 2615.;
+  TF1* f1 = new TF1("f1", "[0]+gaus(1)",
+		    h->GetXaxis()->GetBinLowEdge(bin1-max(2, (int)(bk*4))),
+		    h->GetXaxis()->GetBinUpEdge( bin1+max(2, (int)(bk*4))));
+  double base = h->Integral((int)(bin1-65*bk), (int)(bin1-55*bk));
+  base += h->Integral((int)(bin1+35*bk), (int)(bin1+45*bk));
+  base /= 20;
+  f1->SetParameters(base, h->GetBinContent(bin1), h->GetBinCenter(bin1), 2*bk);
+  f1->SetParLimits(0, base/2, base*2);
+  h->Fit(f1, "QR+");
+  double val1 = f1->GetParameter(2);
+  // find the maximum at the approximate position of 583 keV
+  int bin0 = (int) (bin1*583./2615);
+  int mbin = 0;
+  mval = 0.0;
+  for(int i=(int)(bin0-0.025*bin1); i<(int)(bin0+0.025*bin1); i++)
+    if(h->GetBinContent(i) > mval){
+      mval = h->GetBinContent(i);
+      mbin = i;
+    }
+  TF1* f0 = new TF1("f0", "[0]+gaus(1)",
+		    h->GetXaxis()->GetBinLowEdge(bin0-max(2, (int)(bk*2))),
+		    h->GetXaxis()->GetBinUpEdge( bin0+max(2, (int)(bk*2))));
+  base =  h->Integral((int)(bin0-30*bk), (int)(bin0-20*bk));
+  base += h->Integral((int)(bin0+7*bk), (int)(bin0+17*bk));
+  base /= 20;
+  f0->SetParameters(base, h->GetBinContent(bin0), h->GetBinCenter(bin0), bk);
+  f0->SetParLimits(0, base/2, base*2);
+  h->Fit(f0, "QR+");
+  double val0 = f0->GetParameter(2);
+  scale = (2615-583) / (val1-val0);
+  offset = 2615 - scale*val1;
 }
 
 // calibrate the AvsE cut from a scaled A vs E histogram
@@ -65,7 +99,6 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
   vector<double> y;
   vector<double> ex;
   vector<double> ey;
-  // fixme - use the list of 22 points from the AvsE paper
   for(int i=0; i<(int)start.size(); i++){
     int bin0 = ha->GetXaxis()->FindBin(start[i]);
     int bin1 = ha->GetXaxis()->FindBin(start[i]+w);
@@ -79,6 +112,10 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
     y.push_back(h->GetXaxis()->GetBinCenter(h->GetMaximumBin()));
     ey.push_back(h->GetMeanError());
     delete h;
+  }
+  if(x.size() == 0){
+    cout << "AvsE calibration failed due to empty histogram" << endl;
+    return NULL;
   }
   // fit to the AvsE profile with a quadratic
   TGraphErrors* g = new TGraphErrors(x.size(), &x.front(),  &y.front(),
@@ -139,8 +176,12 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
 void DCRCal(TH2D* h, double rejlo, double rejhi, double& cutlo, double& cuthi){
   // fixme - maybe use the energy range we actually use for DCR
   TH1D* hp = h->ProjectionY("hdcr_proj",
-			    h->GetXaxis()->FindBin(500),
-			    h->GetXaxis()->FindBin(2500));
+			    h->GetXaxis()->FindBin(1850),
+			    h->GetXaxis()->FindBin(2050));
+  TH1D* hp2 = h->ProjectionY("hdcr_proj2",
+			     h->GetXaxis()->FindBin(2150),
+			     h->GetXaxis()->FindBin(2350));
+  hp->Add(hp2);
   double dint = hp->Integral();
   hp->SetBinContent(1, hp->GetBinContent(1)/dint);
   for(int i=2; i<=(int)hp->GetNbinsX(); i++){
@@ -151,6 +192,7 @@ void DCRCal(TH2D* h, double rejlo, double rejhi, double& cutlo, double& cuthi){
       cuthi = hp->GetBinCenter(i);
   }
   delete hp;
+  delete hp2;
 }
 
 int main(int argc, char* argv[]){
@@ -411,6 +453,7 @@ int main(int argc, char* argv[]){
       TF1* fdcr = new TF1("fdcr", "[0]+[1]*x",
 			  0.0, dcr_prof->GetXaxis()->GetXmax());
       fdcr->FixParameter(0, 0.0);
+      fdcr->SetParameter(1, -1.0e5);
       dcr_prof->Fit(fdcr, "QFR+");
       dcre_slope[i]   = fdcr->GetParameter(1);
       dcre_uncert[i] = fdcr->GetParError(1);
@@ -622,10 +665,13 @@ int main(int argc, char* argv[]){
       avse[ich] /= avse_param[ich][3];
       aoe[ich] = imax->at(ich) / trapEFCal[ich];
       // fixme - this places the cuts at -1 to 1, probably not what we want
-      dcr[ich] = dcrslope->at(ich)-dcre_slope[ich]*trapECal[ich];
-      dcr[ich] = dcr[ich]*2/(dcr_cut_hi[ich]-dcr_cut_lo[ich]);
-      dcr[ich] += (dcr_cut_lo[ich]+dcr_cut_hi[ich])/
-	(dcr_cut_lo[ich]-dcr_cut_hi[ich]);
+      if(use_fixedt)
+	dcr[ich] = dcrslope->at(ich);//-dcre_slope[ich]*trappick->at(ich);
+      else
+	dcr[ich] = dcrslope->at(ich);//-dcre_slope[ich]*trapmax->at(ich);
+      //dcr[ich] = dcr[ich]*2/(dcr_cut_hi[ich]-dcr_cut_lo[ich]);
+      //dcr[ich] += (dcr_cut_lo[ich]+dcr_cut_hi[ich])/
+      //(dcr_cut_lo[ich]-dcr_cut_hi[ich]);
     }
     outtree->Fill();
   }
