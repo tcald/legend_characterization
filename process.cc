@@ -1,4 +1,5 @@
 #include "utils.hh"
+#include <MGTRun.hh>
 #include <MGTEvent.hh>
 #include <MGTWaveform.hh>
 #include <MGWFPoleZeroCorrection.hh>
@@ -170,6 +171,7 @@ int main(int argc, char* argv[]){
   }
     
   // output tree
+  int run, eventnum;
   vector<int>    channel, maxtime, mintime, trapmaxtime;
   vector<double> baseline, baserms, maxval, minval, trappick;
   vector<double> t0, t1, t10, t50, t90, t99, imax, dcrslope;
@@ -181,6 +183,8 @@ int main(int argc, char* argv[]){
       outfile->mkdir(("ch"+to_string(p.first)).c_str());
   tdir->cd();
   TTree* outtree = new TTree("tree", "tree");
+  outtree->Branch("run", &run);
+  outtree->Branch("eventnum", &eventnum);
   outtree->Branch("channel", &channel);
   outtree->Branch("maxtime", &maxtime);
   outtree->Branch("mintime", &mintime);
@@ -286,6 +290,7 @@ int main(int argc, char* argv[]){
   int nentries = (int) tree.GetEntries();
   if(max_wf > 0) nentries = min(nentries, max_wf);
   TTreeReader reader(&tree);
+  TTreeReaderValue<MGTRun> mgtrun(reader, "run");
   TTreeReaderValue<MGTEvent> event(reader, "event");
 
   MGWFPoleZeroCorrection* pole_zero=new MGWFPoleZeroCorrection();
@@ -297,7 +302,8 @@ int main(int argc, char* argv[]){
   fast_trap->SetFallTime(fast_fall);
   MGWFTrapezoidalFilter* avse_trap=new MGWFTrapezoidalFilter(avse_ramp,
 							     avse_flat);
-  
+
+  int lrun = -1;
   int iev = -1;
   int cpercent = -1;
   int lpercent = -1;
@@ -309,6 +315,13 @@ int main(int argc, char* argv[]){
     lpercent = cpercent;
     if(iev >= nentries) break;
     if(iev % 100000 == 0 && iev > 0) outtree->AutoSave();
+    run = mgtrun->GetRunNumber();
+    // event->GetEventNumber() is 0 for the basic event builder
+    if(run != lrun){
+      lrun = run;
+      eventnum = -1;
+    }
+    eventnum ++;
     TClonesArray* wfs = event->GetWaveforms();
     int nwf = (int) chan_map.size();
     // clear previous values

@@ -73,6 +73,7 @@ void Th_scale(TH1D* h, double& offset, double& scale){
       mval = h->GetBinContent(i);
       mbin = i;
     }
+  bin0 = mbin;
   TF1* f0 = new TF1("f0", "[0]+gaus(1)",
 		    h->GetXaxis()->GetBinLowEdge(bin0-max(2, (int)(bk*2))),
 		    h->GetXaxis()->GetBinUpEdge( bin0+max(2, (int)(bk*2))));
@@ -346,12 +347,15 @@ int main(int argc, char* argv[]){
   vector<double> dcr_cut_hi(chan_map.size(), 0.0);
 
   // output tree setup
+  int run, eventnum;
   vector<int> chan;
   vector<double> baseSigma, nbaserms, timestamp, dt, T0, trise;
   vector<double> trapECal, trapEFCal, /*trapEFRCal,*/ avse, aoe, dcr;
   TFile* outfile = new TFile(ofname.c_str(), "recreate");
   tdir->cd();
   TTree* outtree = new TTree("tree", "tree");
+  outtree->Branch("run", &run);
+  outtree->Branch("eventnum", &eventnum);
   outtree->Branch("channel", &chan);
   outtree->Branch("baseSigma", &baseSigma);
   outtree->Branch("nbaserms", &nbaserms);
@@ -607,8 +611,11 @@ int main(int argc, char* argv[]){
     }
   }
 
+  // fixme - copy over other useful values from the below
   intree->SetBranchStatus("*", true);
   reader.Restart();
+  TTreeReaderValue<int> runIn(reader, "run");
+  TTreeReaderValue<int> eventnumIn(reader, "eventnum");
   TTreeReaderValue<vector<int> > maxtime(reader, "maxtime");
   TTreeReaderValue<vector<int> > mintime(reader, "mintime");
   TTreeReaderValue<vector<int> > trapmaxtime(reader, "trapmaxtime");
@@ -630,6 +637,8 @@ int main(int argc, char* argv[]){
   while(reader.Next()){
     iev ++;
     if(iev % 100000 == 0 && iev > 0) outtree->AutoSave();
+    run = *runIn;
+    eventnum = *eventnumIn;
     int nwf = (int) channel->size();
     chan.assign(nwf, 0);
     baseSigma.assign(nwf, 0.0);
