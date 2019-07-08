@@ -433,34 +433,6 @@ int main(int argc, char* argv[]){
       int i = pr.second;
       cout << "getting initial energy scale calibration for channel "
 	   << pr.first << endl;
-      // baseline, baseline rms, and pz constant
-      int ebin0 = hbase_energy[i]->GetXaxis()->FindBin(200);
-      int ebin1 = hbase_energy[i]->GetXaxis()->FindBin(5000);
-      hbase[i] =  hbase_energy[i]->ProjectionY(("hbase_"+to_string(i)).c_str(),
-					       ebin0, ebin1);
-      hbrms[i] =  hbrms_energy[i]->ProjectionY(("hbrms_"+to_string(i)).c_str(),
-					       ebin0, ebin1);
-      base_mean[i] = hbase[i]->GetMean();
-      brms_mean[i] = hbrms[i]->GetMean();
-      base_uncert[i]  = hbase[i]->GetMeanError();
-      brms_uncert[i]  = hbrms[i]->GetMeanError();
-      int tbin0 = hdecay_deltat[i]->GetXaxis()->FindBin(50);
-      int tbin1 = hdecay_deltat[i]->GetXaxis()->FindBin(250);
-      hdecay[i]=hdecay_deltat[i]->ProjectionY(("hdecay_"+to_string(i)).c_str(),
-						tbin0, tbin1);
-      if(hdecay[i]->GetMaximum() > 0.9*hdecay[i]->Integral()){
-	pz_mean[i] = hdecay[i]->GetBinCenter(hdecay[i]->GetMaximumBin());
-	pz_uncert[i] = 0.0;
-      }
-      else{
-	double pzm = hdecay[i]->GetBinCenter(hdecay[i]->GetMaximumBin());
-	double pzr = hdecay[i]->GetRMS();
-	TF1* fpz = new TF1("fpz", "gaus(0)", pzm-0.5*pzr, pzm+0.5*pzr);
-	hdecay[i]->Fit(fpz, "QR+");
-	pz_mean[i] = fpz->GetParameter(1);
-	pz_uncert[i] = fpz->GetParError(1);
-	delete fpz;
-      }
       // initial energy scale correction
       Th_scale(henergy[i], eoffset[i], escale[i]);
       Th_scale(henergyf[i], efoffset[i], efscale[i]);
@@ -479,6 +451,34 @@ int main(int argc, char* argv[]){
 	hecal[i]->SetBinContent(bin, henergy[i]->GetBinContent(bin));
       hecal[i]->SetXTitle("Energy (keV)");
       hecal[i]->SetYTitle("Entries");
+      // baseline, baseline rms, and pz constant
+      int ebin0 =
+	hbase_energy[i]->GetXaxis()->FindBin((200-eoffset[i])/escale[i]);
+      int ebin1 =
+	hbase_energy[i]->GetXaxis()->FindBin((5000-eoffset[i])/escale[i]);
+      hbase[i] =  hbase_energy[i]->ProjectionY(("hbase_"+to_string(i)).c_str(),
+					       ebin0, ebin1);
+      hbrms[i] =  hbrms_energy[i]->ProjectionY(("hbrms_"+to_string(i)).c_str(),
+					       ebin0, ebin1);
+      base_mean[i] = hbase[i]->GetMean();
+      brms_mean[i] = hbrms[i]->GetMean();
+      base_uncert[i]  = hbase[i]->GetMeanError();
+      brms_uncert[i]  = hbrms[i]->GetMeanError();
+      hdecay[i]=hdecay_energy[i]->ProjectionY(("hdecay_"+to_string(i)).c_str(),
+						ebin0, ebin1);
+      if(hdecay[i]->GetMaximum() > 0.9*hdecay[i]->Integral()){
+	pz_mean[i] = hdecay[i]->GetBinCenter(hdecay[i]->GetMaximumBin());
+	pz_uncert[i] = 0.0;
+      }
+      else{
+	double pzm = hdecay[i]->GetBinCenter(hdecay[i]->GetMaximumBin());
+	double pzr = hdecay[i]->GetRMS();
+	TF1* fpz = new TF1("fpz", "gaus(0)", pzm-0.5*pzr, pzm+0.5*pzr);
+	hdecay[i]->Fit(fpz, "QR+");
+	pz_mean[i] = fpz->GetParameter(1);
+	pz_uncert[i] = fpz->GetParError(1);
+	delete fpz;
+      }
       // dcr slope correction
       TProfile* dcr_prof = hdcr_energy[i]->ProfileX(("hdcr_prof_" +
 						     to_string(i)).c_str());
