@@ -85,7 +85,6 @@ void Th_scale(TH1D* h, double& offset, double& scale){
   f0->SetParLimits(0, base/2, base*2);
   h->Fit(f0, "QR+");
   double val0 = f0->GetParameter(2);
-  printf("%f\t%f\n", val0, val1);
   scale = (2615-583) / (val1-val0);
   offset = 2615 - scale*val1;
 }
@@ -177,7 +176,6 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
 
 // calibrate the DCR cut from the corrected DCR vs energy
 void DCRCal(TH2D* h, double rejlo, double rejhi, double& cutlo, double& cuthi){
-  // fixme - maybe use the energy range we actually use for DCR
   TH1D* hp = h->ProjectionY("hdcr_proj",
 			    h->GetXaxis()->FindBin(1850),
 			    h->GetXaxis()->FindBin(2050));
