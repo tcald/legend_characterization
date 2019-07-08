@@ -35,23 +35,6 @@ TDirectory* tdir;
 
 int main(int argc, char* argv[]){
 
-  // default parameters, later set in json configuration
-  double slow_ramp =     2500.0;
-  double slow_flat =     1500.0;
-  double fast_ramp =     40.0;
-  double fast_flat =     100.0;
-  double fast_fall =     2000.0;
-  double avse_ramp =     100.0;
-  double avse_flat =     300.0;
-  double t0_thresh =     2.0;
-  double pz_decay  =     49000.0;
-  double pzd_decay =     0.0;
-  double os_amplitude =  0.0;
-  double os_decay     =  0.0;
-  int    nbase_samples = 200;
-  int    nefit_samples = 300;
-  int    ndcr_samples  = 100;
-
   // root setup
   gStyle->SetOptStat(0);
   gStyle->SetLabelFont(132, "XYZ");
@@ -64,18 +47,19 @@ int main(int argc, char* argv[]){
 
   // option handling
   map<int, int> chan_map;
+  vector<string> serial_numbers;
   string base_dir = "";
   int max_wf = 0;
   string outfname = "";
   string fnamebase = "";
+  string jsonfname = "";
   int run_start = -1;
   int run_end = -1;
   string infname = "";
   bool fit_tail = true;
-  bool float_pz = true;
+  bool float_pz = false;
   int nbits = 16;
   int write_wf = 0;
-  double rc_decay = 0.0;
   int update_percentage = 5;
   static struct option opts[]{
     {"help",             no_argument, NULL, 'h'},
@@ -95,7 +79,7 @@ int main(int argc, char* argv[]){
     {"update",     required_argument, NULL, 'u'}
   };
   int opt = getopt_long(argc, argv,
-			"hd:c:n:o:f:r:R:i:Fb:w:D:j:u:", opts, NULL);
+			"hd:c:n:o:f:r:R:i:Fb:w:Dj:u:", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
@@ -111,7 +95,7 @@ int main(int argc, char* argv[]){
       cout << "  -F do not fit exponential tail"     << endl;
       cout << "  -b number of ADC bits"              << endl;
       cout << "  -w plot every n'th wf"              << endl;
-      cout << "  -D decay constant in ns"            << endl;
+      cout << "  -D fit decay constants"             << endl;
       cout << "  -j name of json configuration file" << endl;
       cout << "  -u update interval (percentage)"    << endl;
       return 0;
@@ -129,49 +113,98 @@ int main(int argc, char* argv[]){
     case 'F': fit_tail    = false;          break;
     case 'b': nbits       = atoi(optarg);   break;
     case 'w': write_wf    = atoi(optarg);   break;
-    case 'D': rc_decay    = atof(optarg);   break;
-    case 'j':{
-      ifstream jfile(optarg);
-      Json::CharReaderBuilder reader;
-      Json::Value value;
-      string errors;
-      if(!parseFromStream(reader, jfile, &value, &errors)){
-	cout << errors << endl;
-	return 2;
-      }
-      cout << "reading parameters for " << value["manufacturer"].asString()
-	   << " " << value["serial"].asString() << endl;
-      SetJson(value, "slow_ramp",     slow_ramp);
-      SetJson(value, "slow_flat",     slow_flat);
-      SetJson(value, "fast_ramp",     fast_ramp);
-      SetJson(value, "fast_flat",     fast_flat);
-      SetJson(value, "fast_fall",     fast_fall);
-      SetJson(value, "avse_ramp",     avse_ramp);
-      SetJson(value, "t0_thresh",     t0_thresh);
-      SetJson(value, "pzd_decay",     pzd_decay);
-      SetJson(value, "os_amplitude",  os_amplitude);
-      SetJson(value, "nbase_samples", nbase_samples);
-      SetJson(value, "nefit_samples", nefit_samples);
-      SetJson(value, "ndcr_samples",  ndcr_samples);
-      if(SetJson(value, "pz_decay", pz_decay)) float_pz = false;
-      break;
-    }
+    case 'D': float_pz    = true;           break;
+    case 'j': jsonfname   = string(optarg); break;
     case 'u': update_percentage = atoi(optarg); break;
     default: return 1;
     }
     opt = getopt_long(argc, argv,
-		      "hd:c:n:o:f:r:R:i:Fb:w:D:j:u:", opts, NULL);
+		      "hd:c:n:o:f:r:R:i:Fb:w:Dj:u:", opts, NULL);
   }
   assert(infname != "" || (run_start > 0 && run_end > 0));
-  if(rc_decay != 0.0){
-    pz_decay = rc_decay;
-    float_pz = true;
-    cout << "over-riding default pz constant with user-specified value "
-	 << pz_decay << " ns" << endl;
+
+  // default parameters
+  vector<double> slow_ramp(chan_map.size(), 2500.0);
+  vector<double> slow_flat(chan_map.size(), 1500.0);
+  vector<double> fast_ramp(chan_map.size(), 40.0);
+  vector<double> fast_flat(chan_map.size(), 100.0);
+  vector<double> fast_fall(chan_map.size(), 2000.0);
+  vector<double> avse_ramp(chan_map.size(), 100.0);
+  vector<double> avse_flat(chan_map.size(), 300.0);
+  vector<double> t0_thresh(chan_map.size(), 2.0);
+  vector<double> pz_decay(chan_map.size(), 49000.0);
+  vector<double> pzd_decay(chan_map.size(), 0.0);
+  vector<double> os_amplitude(chan_map.size(), 0.0);
+  vector<double> os_decay(chan_map.size(), 0.0);
+  vector<int>    nbase_samples(chan_map.size(), 200);
+  vector<int>    nefit_samples(chan_map.size(), 300);
+  vector<int>    ndcr_samples(chan_map.size(), 100);
+
+  // read the json configuration file if provided
+  Json::Value jvalue;
+  if(jsonfname != ""){
+    ifstream jfile(jsonfname);
+    Json::CharReaderBuilder jreader;
+    string jerrors;
+    if(!Json::parseFromStream(jreader, jfile, &jvalue, &jerrors)){
+      cout << jerrors << endl;
+      return 2;
+    }
+    jfile.close();
+    vector<int> channels;
+    vector<string> detectors;
+    SetJson(jvalue, "channel_id", channels);
+    SetJson(jvalue, "det_serial", detectors);
+    assert(channels.size() == detectors.size());
+    if(chan_map.size() == 0){
+      cout << "no user specified channel(s), attempting to use channel_id "
+	   << "list from configuration file" << endl;
+      for(auto const& i : channels){
+	unsigned s = chan_map.size();
+	chan_map[i] = s;
+      }
+    }
+    for(auto const& pr : chan_map){
+      vector<int>::iterator i = find(channels.begin(),
+				     channels.end(), pr.first);
+      if(i == channels.end()){
+	cout <<"channel "<<pr.first<<" not found in "<<jsonfname<<endl;
+	return 3;
+      }
+      int index = distance(channels.begin(), i);
+      if(!jvalue.isMember(detectors[index])){
+	cout << "configuration not found for " << detectors[index] << " in "
+	     << jsonfname << endl;
+	return 3;
+      }
+      serial_numbers.push_back(detectors[index]);
+      Json::Value value = jvalue[detectors[index]];
+      cout << "reading parameters for channel " << pr.first << " detector "
+	   << detectors[index] << endl;
+      SetJson(value, "slow_ramp",     slow_ramp[pr.second]);
+      SetJson(value, "slow_flat",     slow_flat[pr.second]);
+      SetJson(value, "fast_ramp",     fast_ramp[pr.second]);
+      SetJson(value, "fast_flat",     fast_flat[pr.second]);
+      SetJson(value, "fast_fall",     fast_fall[pr.second]);
+      SetJson(value, "avse_ramp",     avse_ramp[pr.second]);
+      SetJson(value, "t0_thresh",     t0_thresh[pr.second]);
+      SetJson(value, "pzd_decay",     pzd_decay[pr.second]);
+      SetJson(value, "os_amplitude",  os_amplitude[pr.second]);
+      SetJson(value, "os_decay",      os_decay[pr.second]);
+      SetJson(value, "nbase_samples", nbase_samples[pr.second]);
+      SetJson(value, "nefit_samples", nefit_samples[pr.second]);
+      SetJson(value, "ndcr_samples",  ndcr_samples[pr.second]);
+      SetJson(value, "pz_decay",      pz_decay[pr.second]);
+    }
   }
-    
+  if(chan_map.size() == 0){
+    cout << "no user-specified channels or configuration channel list" << endl;
+    return 4;
+  }
+  
   // output tree
   int run, eventnum;
+  vector<string> detserial;
   vector<int>    channel, maxtime, mintime, trapmaxtime;
   vector<double> baseline, baserms, maxval, minval, trappick;
   vector<double> t0, t1, t10, t50, t90, t99, imax, dcrslope;
@@ -185,6 +218,7 @@ int main(int argc, char* argv[]){
   TTree* outtree = new TTree("tree", "tree");
   outtree->Branch("run", &run);
   outtree->Branch("eventnum", &eventnum);
+  outtree->Branch("detserial", &detserial);
   outtree->Branch("channel", &channel);
   outtree->Branch("maxtime", &maxtime);
   outtree->Branch("mintime", &mintime);
@@ -227,8 +261,9 @@ int main(int argc, char* argv[]){
   vector<TH2D*> hdcr_energyf(chan_map.size(), NULL);
   vector<TH2D*> hrise_energyf(chan_map.size(), NULL);
   int adcbins = (1<<nbits) / 16;
-  for(int i=0; i<(int)hbase_energy.size(); i++){
-    int ch = chan_map[i];
+  for(auto const& pr : chan_map){
+    int ch = pr.first;
+    int i = pr.second;
     hdeltat[i] = new TH1D(("hdeltat_"+to_string(ch)).c_str(), "",
 			  1e5, 0.0, 10000.0);
     hdeltat[i]->SetXTitle("Delta t (#mu s)");
@@ -294,19 +329,20 @@ int main(int argc, char* argv[]){
   TTreeReaderValue<MGTEvent> event(reader, "event");
 
   MGWFPoleZeroCorrection* pole_zero=new MGWFPoleZeroCorrection();
-  MGWFTrapezoidalFilter* slow_trap=new MGWFTrapezoidalFilter(slow_ramp,
-							     slow_flat);
+  MGWFTrapezoidalFilter* slow_trap=new MGWFTrapezoidalFilter(slow_ramp[0],
+							     slow_flat[0]);
   MGWFAsymTrapezoidalFilter* fast_trap = new MGWFAsymTrapezoidalFilter();
-  fast_trap->SetRampTime(fast_ramp);
-  fast_trap->SetFlatTime(fast_flat);
-  fast_trap->SetFallTime(fast_fall);
-  MGWFTrapezoidalFilter* avse_trap=new MGWFTrapezoidalFilter(avse_ramp,
-							     avse_flat);
+  fast_trap->SetRampTime(fast_ramp[0]);
+  fast_trap->SetFlatTime(fast_flat[0]);
+  fast_trap->SetFallTime(fast_fall[0]);
+  MGWFTrapezoidalFilter* avse_trap=new MGWFTrapezoidalFilter(avse_ramp[0],
+							     avse_flat[0]);
 
   int lrun = -1;
   int iev = -1;
   int cpercent = -1;
   int lpercent = -1;
+  vector<int> skip_chan;
   while(reader.Next()){
     iev ++;
     cpercent = (int) (100.0*iev/nentries);
@@ -323,9 +359,10 @@ int main(int argc, char* argv[]){
     }
     eventnum ++;
     TClonesArray* wfs = event->GetWaveforms();
-    int nwf = (int) chan_map.size();
+    int nwf = (int) wfs->GetEntries();
     // clear previous values
     channel.assign(nwf, 0);
+    detserial.assign(nwf, "");
     maxtime.assign(nwf, 0);
     mintime.assign(nwf, 0);
     trapmaxtime.assign(nwf, 0);
@@ -349,47 +386,56 @@ int main(int argc, char* argv[]){
     exp_param.assign(nwf, vector<double>(4, 0.0));
     // start analyzing waveforms for channels selected by user
     for(int iwf=0; iwf<(int)wfs->GetEntriesFast(); iwf++){
-      if(chan_map.find(iwf) == chan_map.end()) continue;
-      int index = chan_map[iwf];
+      MGTWaveform* wf = (MGTWaveform*) wfs->At(iwf);
+      channel[iwf] = (int) wf->GetID();
+      if(chan_map.find(channel[iwf]) == chan_map.end()){
+	if(find(skip_chan.begin(),
+		skip_chan.end(), channel[iwf]) == skip_chan.end()){
+	  skip_chan.push_back(channel[iwf]);
+	  continue;
+	}
+      }
+      int index = chan_map[channel[iwf]];
+      detserial[iwf] = serial_numbers[index];
       wf_count[index] ++;
       bool write = false;
       if(write_wf>0) if(wf_count[index] % write_wf == 0) write = true;
-      channel[index] = iwf;
-      MGTWaveform* wf = (MGTWaveform*) wfs->At(iwf);
       TH1D* hwf_orig = NULL;
       if(write) hwf_orig = wf->GimmeUniqueHist();
-      time[index] = (event->GetTime() + wf->GetTOffset())/1e9;
-      deltat[index] = time[index] - tlast[index];
-      hdeltat[index]->Fill(deltat[index] * 1e6);
+      time[iwf] = (event->GetTime() + wf->GetTOffset())/1e9;
+      deltat[iwf] = time[iwf] - tlast[index];
+      hdeltat[index]->Fill(deltat[iwf] * 1e6);
       double sampling = wf->GetSamplingPeriod();
-      stime[index] = sampling;
+      stime[iwf] = sampling;
       vector<double> vwf = wf->GetVectorData();
-      assert((int)vwf.size()>nbase_samples && (int)vwf.size()>=2*nefit_samples);
-      baseline[index] = accumulate(vwf.begin(), vwf.begin()+nbase_samples, 0);
-      baseline[index] /= nbase_samples;
-      double base_orig = baseline[index];
+      assert((int)vwf.size()>nbase_samples[index] &&
+	     (int)vwf.size()>=2*nefit_samples[index]);
+      baseline[iwf] = accumulate(vwf.begin(),
+				 vwf.begin()+nbase_samples[index], 0);
+      baseline[iwf] /= nbase_samples[index];
+      double base_orig = baseline[iwf];
       // exponential baseline correction from last event, fit exponential tail
       if(fit_tail){
 	for_each(xfit.begin(), xfit.end(),
-		 [&](double& s){s-=deltat[index]*1e9;});
-	for(int i=0; i<nefit_samples; i++){
+		 [&](double& s){s-=deltat[iwf]*1e9;});
+	for(int i=0; i<nefit_samples[index]; i++){
 	  xfit.push_back(i*sampling);
 	  yfit.push_back(vwf[i]);
 	}
 	TF1* fn = new TF1("ftmp", "[0]+[1]*exp(-x/[2])",
 			  xfit[0], xfit[xfit.size()-1]);
-	fn->SetParameter(0, baseline[index]);
-	fn->SetParameter(1, vwf[0]-baseline[index]);
-	if(float_pz) fn->SetParameter(2, pz_decay);
-	else fn->FixParameter(2, pz_decay);
+	fn->SetParameter(0, baseline[iwf]);
+	fn->SetParameter(1, vwf[0]-baseline[iwf]);
+	if(float_pz) fn->SetParameter(2, pz_decay[index]);
+	else fn->FixParameter(2, pz_decay[index]);
 	TGraph* gr = new TGraph(xfit.size(), &xfit.front(), &yfit.front());
 	gr->Fit(fn, "QRNW");
-	for(int i=0; i<3; i++) exp_param[index][i] = fn->GetParameter(i);
-	exp_param[index][3] = fn->GetChisquare() / (xfit.size()-3);
-	xfit.resize(nefit_samples, 0.0);
-	yfit.resize(nefit_samples, 0.0);
-	for(int i=(int)vwf.size()-nefit_samples; i<(int)vwf.size(); i++){
-	  int j = i - (int)vwf.size() + nefit_samples;
+	for(int i=0; i<3; i++) exp_param[iwf][i] = fn->GetParameter(i);
+	exp_param[iwf][3] = fn->GetChisquare() / (xfit.size()-3);
+	xfit.resize(nefit_samples[index], 0.0);
+	yfit.resize(nefit_samples[index], 0.0);
+	for(int i=(int)vwf.size()-nefit_samples[index]; i<(int)vwf.size();i++){
+	  int j = i - (int)vwf.size() + nefit_samples[index];
 	  xfit[j] = i*sampling;
 	  yfit[j] = vwf[i];
 	}
@@ -397,118 +443,131 @@ int main(int argc, char* argv[]){
 	  vwf[i] = vwf[i] - fn->Eval(i*sampling);
 	delete gr;
 	delete fn;
-	baseline[index] = accumulate(vwf.begin(), vwf.begin()+nbase_samples,0);
-	baseline[index] /= nbase_samples;
+	baseline[iwf] = accumulate(vwf.begin(),
+				   vwf.begin()+nbase_samples[index],0);
+	baseline[iwf] /= nbase_samples[index];
       }
       // offset baseline subtraction, baseline rms, extrema, and decay constant
-      tlast[index] = time[index];
-      for_each(vwf.begin(), vwf.end(), [&](double& s){s-=baseline[index];});
-      baserms[index]=sqrt(inner_product(vwf.begin(), vwf.begin()+nbase_samples,
-					vwf.begin(), 0.0) / nbase_samples);
+      tlast[index] = time[iwf];
+      for_each(vwf.begin(), vwf.end(), [&](double& s){s-=baseline[iwf];});
+      baserms[iwf]=sqrt(inner_product(vwf.begin(),
+				      vwf.begin()+nbase_samples[index],
+				      vwf.begin(), 0.0)/nbase_samples[index]);
       wf->SetData(vwf);
       TH1D* hwf_cor = NULL;
       if(write) hwf_cor = wf->GimmeUniqueHist();
       vector<double>::iterator itmax = max_element(vwf.begin(), vwf.end());
       vector<double>::iterator itmin = min_element(vwf.begin(), vwf.end());
-      maxtime[index] = distance(vwf.begin(), itmax);
-      mintime[index] = distance(vwf.begin(), itmin);
-      maxval[index]  = *itmax;
-      minval[index]  = *itmin;
+      maxtime[iwf] = distance(vwf.begin(), itmax);
+      mintime[iwf] = distance(vwf.begin(), itmin);
+      maxval[iwf]  = *itmax;
+      minval[iwf]  = *itmin;
       if(itmax == vwf.begin() || itmax == vwf.end()) continue;
       // second pass pz correction and adc overshoot correction
       MGTWaveform* pz = new MGTWaveform();
-      if(fit_tail) pole_zero->SetDecayConstant(exp_param[index][2]);
-      else pole_zero->SetDecayConstant(pz_decay);
+      if(fit_tail) pole_zero->SetDecayConstant(exp_param[iwf][2]);
+      else pole_zero->SetDecayConstant(pz_decay[index]);
       pole_zero->TransformOutOfPlace(*wf, *pz);
       vector<double> vwff = pz->GetVectorData();
       MGTWaveform* wff = pz;
       MGTWaveform* pzd = NULL;
-      if(pzd_decay > 0.0){
+      if(pzd_decay[index] > 0.0){
 	pzd = new MGTWaveform();
-	PZDiff(*pz, *pzd, pzd_decay);
+	PZDiff(*pz, *pzd, pzd_decay[index]);
 	vwff = pzd->GetVectorData();
 	wff = pzd;
       }
       MGTWaveform* os = NULL;
-      if(os_decay > 0.0 && os_amplitude > 0.0){
+      if(os_decay[index] > 0.0 && os_amplitude[index] > 0.0){
 	os = new MGTWaveform();
-	OvershootCorrection(*pzd, *os, os_amplitude, os_decay);
+	OvershootCorrection(*pzd, *os, os_amplitude[index], os_decay[index]);
 	vwff = os->GetVectorData();
 	wff = os;
       }
       // get time points
       MGTWaveform* ft = new MGTWaveform();
-      ft->SetTOffset(fast_fall+fast_flat);
+      ft->SetTOffset(fast_fall[index]+fast_flat[index]);
       MGTWaveform* st = new MGTWaveform();
       MGTWaveform* at = new MGTWaveform();
+      fast_trap->SetFlatTime(fast_flat[index]);
+      fast_trap->SetRampTime(fast_ramp[index]);
+      fast_trap->SetFallTime(fast_fall[index]);
       fast_trap->TransformOutOfPlace(*wff, *ft);
+      slow_trap->SetFlatTime(slow_flat[index]);
+      slow_trap->SetRampTime(slow_ramp[index]);
       slow_trap->TransformOutOfPlace(*wff, *st);
+      avse_trap->SetFlatTime(avse_flat[index]);
+      avse_trap->SetRampTime(avse_ramp[index]);
       avse_trap->TransformOutOfPlace(*wff, *at);
       vector<double> vft = ft->GetVectorData();
       vector<double> vst = st->GetVectorData();
       vector<double> vat = at->GetVectorData();
       vector<double>::iterator itstmax = max_element(vst.begin(), vst.end());
       vector<double>::iterator itftmax = max_element(vft.begin(), vft.end()-1);
-      imax[index] = *max_element(vat.begin(), vat.end());
-      trapmaxtime[index] = distance(vst.begin(), itstmax);
-      trapmax[index] = *itstmax;
-      hbase_energy[index]->Fill(trapmax[index], baseline[index]);
-      hbrms_energy[index]->Fill(trapmax[index], baserms[index]);
+      imax[iwf] = *max_element(vat.begin(), vat.end());
+      trapmaxtime[iwf] = distance(vst.begin(), itstmax);
+      trapmax[iwf] = *itstmax;
+      hbase_energy[index]->Fill(trapmax[iwf], baseline[iwf]);
+      hbrms_energy[index]->Fill(trapmax[iwf], baserms[iwf]);
       if(fit_tail){
-	if(deltat[index]*1e6 < 250)
-	  hdecay_energy[index]->Fill(trapmax[index], exp_param[index][2]/1000);
-	hdecay_deltat[index]->Fill(deltat[index]*1e6,exp_param[index][2]/1000);
+	if(deltat[iwf]*1e6 < 250)
+	  hdecay_energy[index]->Fill(trapmax[iwf], exp_param[iwf][2]/1000);
+	hdecay_deltat[index]->Fill(deltat[iwf]*1e6,exp_param[iwf][2]/1000);
       }
-      double ftbase = accumulate(vft.begin(), vft.begin()+nbase_samples, 0.0);
-      ftbase /= nbase_samples;
+      double ftbase = accumulate(vft.begin(),
+				 vft.begin()+nbase_samples[index], 0.0);
+      ftbase /= nbase_samples[index];
       for_each(vft.begin(), vft.end(), [&](double& s){s-=ftbase;});
-      double ftrms = sqrt(inner_product(vft.begin(), vft.begin()+nbase_samples,
-					vft.begin(), 0.0) / nbase_samples);
+      double ftrms = sqrt(inner_product(vft.begin(),
+					vft.begin()+nbase_samples[index],
+					vft.begin(),0.0)/nbase_samples[index]);
       double ftoffset = ft->GetTOffset()/sampling;
       for(int i=distance(vft.begin(), itftmax); i>=0; i--){
 	double val = vft[i] / (*itftmax);
 	double diff = vft[i+1] - vft[i];
 	if(diff == 0.0) diff = 1.0e12;
-	if(val < 0.01 && t1[index] == 0.0)
-	  t1[index] = i + (vft[i+1]-0.01*(*itftmax))/diff + ftoffset;
-	if(val < 0.1 && t10[index] == 0.0)
-	  t10[index] = i + (vft[i+1]-0.1*(*itftmax))/diff + ftoffset;
-	if(val < 0.5 && t50[index] == 0.0)
-	  t50[index] = i + (vft[i+1]-0.5*(*itftmax))/diff + ftoffset;
-	if(val < 0.9 && t90[index] == 0.0)
-	  t90[index] = i + (vft[i+1]-0.9*(*itftmax))/diff + ftoffset;
-	if(val < 0.99 && t99[index] == 0.0)
-	  t99[index] = i + (vft[i+1]-0.99*(*itftmax))/diff + ftoffset;
-	if(vft[i] < t0_thresh*ftrms){
-	  t0[index] = i + ftoffset;
+	if(val < 0.01 && t1[iwf] == 0.0)
+	  t1[iwf] = i + (vft[i+1]-0.01*(*itftmax))/diff + ftoffset;
+	if(val < 0.1 && t10[iwf] == 0.0)
+	  t10[iwf] = i + (vft[i+1]-0.1*(*itftmax))/diff + ftoffset;
+	if(val < 0.5 && t50[iwf] == 0.0)
+	  t50[iwf] = i + (vft[i+1]-0.5*(*itftmax))/diff + ftoffset;
+	if(val < 0.9 && t90[iwf] == 0.0)
+	  t90[iwf] = i + (vft[i+1]-0.9*(*itftmax))/diff + ftoffset;
+	if(val < 0.99 && t99[iwf] == 0.0)
+	  t99[iwf] = i + (vft[i+1]-0.99*(*itftmax))/diff + ftoffset;
+	if(vft[i] < t0_thresh[index]*ftrms){
+	  t0[iwf] = i + ftoffset;
 	  break;
 	}
       }
-      t0[index] = min(max(0., t0[index]), (double)vft.size());
-      t1[index] = min(max(t0[index],   t1[index]), (double)vft.size());
-      t10[index]= min(max(t1[index],  t10[index]), (double)vft.size());
-      t50[index]= min(max(t10[index], t50[index]), (double)vft.size());
-      t90[index]= min(max(t50[index], t90[index]), (double)vft.size());
-      t99[index]= min(max(t90[index], t99[index]), (double)vft.size());
+      t0[iwf] = min(max(0., t0[iwf]), (double)vft.size());
+      t1[iwf] = min(max(t0[iwf],   t1[iwf]), (double)vft.size());
+      t10[iwf]= min(max(t1[iwf],  t10[iwf]), (double)vft.size());
+      t50[iwf]= min(max(t10[iwf], t50[iwf]), (double)vft.size());
+      t90[iwf]= min(max(t50[iwf], t90[iwf]), (double)vft.size());
+      t99[iwf]= min(max(t90[iwf], t99[iwf]), (double)vft.size());
       // fixed time energy pickoff
-      int pickoff = t0[index] + (int) (slow_ramp+0.75*slow_flat)/sampling;
-      if(pickoff < 0 || pickoff >= (int) vst.size()) trappick[index] = 0;
-      else trappick[index] = vst[pickoff];
-      henergy[index]->Fill(trapmax[index]);
-      henergyf[index]->Fill(trappick[index]);
-      hamp_energy[index]->Fill(trapmax[index], imax[index]);
-      hamp_energyf[index]->Fill(trappick[index], imax[index]);
-      double tr = (t99[index] - t1[index])*sampling - fast_ramp;
-      hrise_energy[index]->Fill(trapmax[index], tr);
-      hrise_energyf[index]->Fill(trappick[index], tr);
+      int pickoff = t0[iwf] +
+	(int) (slow_ramp[index] + 0.75*slow_flat[index])/sampling;
+      if(pickoff < 0 || pickoff >= (int) vst.size()) trappick[iwf] = 0;
+      else trappick[iwf] = vst[pickoff];
+      henergy[index]->Fill(trapmax[iwf]);
+      henergyf[index]->Fill(trappick[iwf]);
+      hamp_energy[index]->Fill(trapmax[iwf], imax[iwf]);
+      hamp_energyf[index]->Fill(trappick[iwf], imax[iwf]);
+      double tr = (t99[iwf] - t1[iwf])*sampling - fast_ramp[index];
+      hrise_energy[index]->Fill(trapmax[iwf], tr);
+      hrise_energyf[index]->Fill(trappick[iwf], tr);
       // compute dcr
-      int dcr_start = min((int)t99[index], (int)vwff.size()-2*ndcr_samples-1);
-      dcrslope[index]  = accumulate(vwff.end()-ndcr_samples, vwff.end(), 0.0);
-      dcrslope[index] -= accumulate(vwff.begin()+dcr_start,
-				    vwff.begin()+dcr_start+ndcr_samples, 0.0);
-      dcrslope[index] /= vwff.size() - dcr_start - ndcr_samples;
-      hdcr_energy[index]->Fill(trapmax[index], dcrslope[index]);
-      hdcr_energyf[index]->Fill(trappick[index], dcrslope[index]);
+      int dcr_start = min((int)t99[iwf],
+			  (int)vwff.size()-2*ndcr_samples[index]-1);
+      dcrslope[iwf] = accumulate(vwff.end()-ndcr_samples[index], vwff.end(),0);
+      dcrslope[iwf]-= accumulate(vwff.begin()+dcr_start,vwff.begin()+dcr_start+
+				 ndcr_samples[index], 0.0);
+      dcrslope[iwf] /= vwff.size() - dcr_start - ndcr_samples[index];
+      hdcr_energy[index]->Fill(trapmax[iwf], dcrslope[iwf]);
+      hdcr_energyf[index]->Fill(trappick[iwf], dcrslope[iwf]);
       // plot waveform and write to output file
       if(write){
 	for(int i=1; i<=(int)hwf_orig->GetNbinsX(); i++)
@@ -521,7 +580,7 @@ int main(int argc, char* argv[]){
 	TH1D* hft = ft->GimmeUniqueHist();
 	TH1D* hst = st->GimmeUniqueHist();
 	TH1D* hat = at->GimmeUniqueHist();
-	string cname = "c_"+to_string(iev)+"_"+to_string(chan_map[iwf]);
+	string cname = "c_"+to_string(iev)+"_"+to_string(channel[iwf]);
 	TCanvas* c = new TCanvas(cname.c_str(), "", 0, 0, 1200, 800);
 	hwf_orig->SetTitle("");
 	hwf_orig->SetLineColor(2);
@@ -553,17 +612,17 @@ int main(int argc, char* argv[]){
 	hat->SetMarkerColor(7);
 	hat->Draw("same");
 	double fto = ftoffset;
-	marker->SetPoint(0, t0[index]*sampling, ft->At((int)(t0[index]-fto)));
-	marker->SetPoint(1, t1[index]*sampling, ft->At((int)(t1[index]-fto)));
-	marker->SetPoint(2,t10[index]*sampling, ft->At((int)(t10[index]-fto)));
-	marker->SetPoint(3,t50[index]*sampling, ft->At((int)(t50[index]-fto)));
-	marker->SetPoint(4,t90[index]*sampling, ft->At((int)(t90[index]-fto)));
-	marker->SetPoint(5,t99[index]*sampling, ft->At((int)(t99[index]-fto)));
-	marker->SetPoint(6, trapmaxtime[index]*sampling, trapmax[index]);
-	marker->SetPoint(7, pickoff*sampling, trappick[index]);
+	marker->SetPoint(0, t0[iwf]*sampling, ft->At((int)(t0[iwf]-fto)));
+	marker->SetPoint(1, t1[iwf]*sampling, ft->At((int)(t1[iwf]-fto)));
+	marker->SetPoint(2,t10[iwf]*sampling, ft->At((int)(t10[iwf]-fto)));
+	marker->SetPoint(3,t50[iwf]*sampling, ft->At((int)(t50[iwf]-fto)));
+	marker->SetPoint(4,t90[iwf]*sampling, ft->At((int)(t90[iwf]-fto)));
+	marker->SetPoint(5,t99[iwf]*sampling, ft->At((int)(t99[iwf]-fto)));
+	marker->SetPoint(6, trapmaxtime[iwf]*sampling, trapmax[iwf]);
+	marker->SetPoint(7, pickoff*sampling, trappick[iwf]);
 	marker->Draw();
 	c->Update();
-	outfile->cd(("ch"+to_string(iwf)).c_str());
+	outfile->cd(("ch"+to_string(channel[iwf])).c_str());
 	c->Write();
 	tdir->cd();
       }
@@ -602,7 +661,23 @@ int main(int argc, char* argv[]){
     hdcr_energyf[i]->Write();
     hrise_energyf[i]->Write();
   }
+  int ch_count = 0;
+  for(auto const& p : chan_map){
+    jvalue["channel_map"][ch_count] = p.first;
+    ch_count ++;
+  }
+  Json::StreamWriterBuilder builder;
+  builder["indentation"] = "";
+  TObjString* jout=new TObjString(Json::writeString(builder, jvalue).c_str());
+  jout->Write("process_config");
   outfile->Close();
-    
+
+  if(skip_chan.size() != 0){
+    cout << "did not process channel(s) ";
+    for(auto const& ch : skip_chan)
+      cout << ch << " ";
+    cout << endl;
+  }
+  
   return 0;
 }

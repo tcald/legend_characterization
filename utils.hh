@@ -108,9 +108,7 @@ bool SetJson(const Json::Value value, const string name, string& param){
 
 bool SetJson(const Json::Value value, const string name,vector<double>& param){
   if(value.isMember(name)){
-    // fixme - for now, require param to be the same size as value
-    assert(param.size() == value[name].size());
-    //param.resize(value[name].size());
+    param.resize(value[name].size());
     for(int i=0; i<(int)value[name].size(); i++)
       param[i] = value[name][i].asDouble();
     return true;
@@ -120,3 +118,30 @@ bool SetJson(const Json::Value value, const string name,vector<double>& param){
     return false;
   }
 }
+
+bool SetJson(const Json::Value value, const string name,vector<int>& param){
+  if(value.isMember(name)){
+    param.resize(value[name].size());
+    for(int i=0; i<(int)value[name].size(); i++)
+      param[i] = value[name][i].asInt();
+    return true;
+  }
+  else{
+    cout <<"parameter "<<name<<" not found"<<endl;
+    return false;
+  }
+}
+
+bool SetJson(const Json::Value value, const string name,vector<string>& param){
+  if(value.isMember(name)){
+    param.resize(value[name].size());
+    for(int i=0; i<(int)value[name].size(); i++)
+      param[i] = value[name][i].asString();
+    return true;
+  }
+  else{
+    cout <<"parameter "<<name<<" not found"<<endl;
+    return false;
+  }
+}
+
