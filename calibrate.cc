@@ -85,6 +85,7 @@ void Th_scale(TH1D* h, double& offset, double& scale){
   f0->SetParLimits(0, base/2, base*2);
   h->Fit(f0, "QR+");
   double val0 = f0->GetParameter(2);
+  printf("%f\t%f\n", val0, val1);
   scale = (2615-583) / (val1-val0);
   offset = 2615 - scale*val1;
 }
@@ -725,7 +726,7 @@ int main(int argc, char* argv[]){
       detserial[ich] = detserialIn->at(ich);
       chan[ich] = channel->at(ich);
       if(chan_map.find(chan[ich]) == chan_map.end() ||
-	 find(chan_skip.begin(), chan_skip.end(), chan[ich])==chan_skip.end())
+	 find(chan_skip.begin(), chan_skip.end(), chan[ich])!=chan_skip.end())
 	continue;
       int i = chan_map[chan[ich]];
       baseSigma[ich] = (baseline->at(ich)-base_mean[i])/brms_mean[i];

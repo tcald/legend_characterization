@@ -1,4 +1,4 @@
-void plot_calibrated(string infname, int index=0, string outfname=""){
+void plot_calibrated(string infname, int chan=0, string outfname=""){
 
   gStyle->SetOptStat(0);
   gStyle->SetLabelFont(132, "XYZ");
@@ -20,39 +20,42 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   TTreeReaderValue<vector<double> > avse(reader, "avse");
   TTreeReaderValue<vector<double> > dcr(reader, "dcr");
 
-  TH1D* he = new TH1D("he", "", 5000, 0.0, 5000.0);
+  TH1D* he = new TH1D("he", "", 10000, 0.0, 5000.0);
   he->SetXTitle("Energy (keV)");
   he->SetYTitle("Entries");
   he->SetLineColor(2);
   TH1D* hef = (TH1D*) he->Clone("hef");
   hef->SetLineColor(1);
   TH1D* hefa = (TH1D*) he->Clone("hefa");
-  hefa->SetLineColor(8);
+  hefa->SetLineColor(4);
   TH1D* hefd = (TH1D*) he->Clone("hefd");
-  hefd->SetLineColor(4);
+  hefd->SetLineColor(8);
   //TH1D* hefr = (TH1D*) he->Clone("hefr");
   //hefr->SetLineColor(6);
   
   TH2D* havse = new TH2D("havse", "", 1000, 0.0, 5000.0, 400, -20.0, 20.0);
   havse->SetXTitle("Energy (keV)");
   havse->SetYTitle("AvsE");
-  TH2D* hdcre = new TH2D("hdcre", "", 1000, 0.0, 5000.0, 400, -2.0, 2.0);
+  TH2D* hdcre = new TH2D("hdcre", "", 1000, 0.0, 5000.0, 1000, -20.0, 20.0);
   hdcre->SetXTitle("Energy (keV)");
   hdcre->SetYTitle("DCR");
-  
+
   while(reader.Next()){
-    if(index > channel->size()) continue;
-    if(abs(baseSigma->at(index)) > 5) continue;
-    if(abs(nbaserms->at(index)) > 5) continue;
-    he->Fill(trapECal->at(index));
-    hef->Fill(trapEFCal->at(index));
-    havse->Fill(trapEFCal->at(index), avse->at(index));
-    if(avse->at(index) > -1.0){
-      hefa->Fill(trapEFCal->at(index));
-      hdcre->Fill(trapEFCal->at(index), dcr->at(index));
-      if(dcr->at(index) >= -1.0 && dcr->at(index) < 1.0){
-	hefd->Fill(trapEFCal->at(index));
-	//hefr->Fill(trapEFRCal->at(index));
+    for(int ich=0; ich<(int)channel->size(); ich++){
+      if(channel->at(ich) != chan) continue;
+      if(abs(baseSigma->at(ich)) > 5) continue;
+      if(abs(nbaserms->at(ich)) > 5) continue;
+      //if(dcr->at(ich)<-1||dcr->at(ich)>1)continue;
+      he->Fill(trapECal->at(ich));
+      hef->Fill(trapEFCal->at(ich));
+      havse->Fill(trapEFCal->at(ich), avse->at(ich));
+      if(avse->at(ich) > -1.0){
+	hefa->Fill(trapEFCal->at(ich));
+	hdcre->Fill(trapEFCal->at(ich), dcr->at(ich));
+	if(dcr->at(ich) >= -1.0 && dcr->at(ich) < 1.0){
+	  hefd->Fill(trapEFCal->at(ich));
+	  //hefr->Fill(trapEFRCal->at(ich));
+	}
       }
     }
   }
@@ -64,7 +67,7 @@ void plot_calibrated(string infname, int index=0, string outfname=""){
   //hefr->Draw("same");
   hef->Draw("same");
   hefa->Draw("same");
-  hefd->Draw("same");
+  //hefd->Draw("same");
   TCanvas* cavse = new TCanvas("cavse", "", 400, 0, 1200, 800);
   cavse->cd(1)->SetLogz(true);
   cavse->cd(1);

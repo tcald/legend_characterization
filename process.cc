@@ -269,11 +269,11 @@ int main(int argc, char* argv[]){
     hdeltat[i]->SetXTitle("Delta t (#mu s)");
     hdeltat[i]->SetYTitle("Entries");
     henergy[i] = new TH1D(("henergy_"+to_string(ch)).c_str(), "",
-			  1<<nbits, 0.0, 1<<nbits);
+			  2*(1<<nbits), 0.0, 1<<nbits);
     henergy[i]->SetXTitle("Trap Maximum (ADC)");
     henergy[i]->SetYTitle("Entries");
     henergyf[i] = new TH1D(("henergyf_"+to_string(ch)).c_str(), "",
-			   1<<nbits, 0.0, 1<<nbits);
+			   2*(1<<nbits), 0.0, 1<<nbits);
     henergyf[i]->SetXTitle("Fixed Time Pickoff (ADC)");
     henergyf[i]->SetYTitle("Entries");
     hbase_energy[i] = new TH2D(("hbase_energy_"+to_string(ch)).c_str(), "",
@@ -343,6 +343,8 @@ int main(int argc, char* argv[]){
   int cpercent = -1;
   int lpercent = -1;
   vector<int> skip_chan;
+  vector<vector<double> > baselines(chan_map.size());
+  vector<bool> rebin_base(chan_map.size(), false);
   while(reader.Next()){
     iev ++;
     cpercent = (int) (100.0*iev/nentries);
@@ -446,6 +448,27 @@ int main(int argc, char* argv[]){
 	baseline[iwf] = accumulate(vwf.begin(),
 				   vwf.begin()+nbase_samples[index],0);
 	baseline[iwf] /= nbase_samples[index];
+      }
+      else if(!rebin_base[index]){
+	// if not fitting the baseline, rebin based on the first 100 events
+	if(baselines[index].size() < 100)
+	  baselines[index].push_back(baseline[iwf]);
+	else{
+	  rebin_base[index] = true;
+	  delete hbase_energy[index];
+	  vector<double> v = baselines[index];
+	  double mean = accumulate(v.begin(), v.end(), 0.0)/v.size();
+	  for_each(v.begin(), v.end(), [&](double&s){s-=mean;});
+	  double rms = sqrt(inner_product(v.begin(), v.end(),
+					  v.begin(), 0.0)/v.size());
+	  string s = "hbase_energy_" + to_string(channel[iwf]);
+	  hbase_energy[index] = new TH2D(s.c_str(), "",
+					 adcbins, 0.0, 10000.0,
+					 400, mean-10*rms, mean+10*rms);
+	  hbase_energy[index]->SetXTitle("Trap Maximum (ADC)");
+	  hbase_energy[index]->SetYTitle("Baseline (ADC)");
+	  baselines[index].clear();
+	}
       }
       // offset baseline subtraction, baseline rms, extrema, and decay constant
       tlast[index] = time[iwf];
@@ -650,7 +673,7 @@ int main(int argc, char* argv[]){
     hdeltat[i]->Write();
     henergy[i]->Write();
     henergyf[i]->Write();
-    hbase_energy[i]->Write();
+    hbase_energy[i]->Write(hbase_energy[i]->GetName());
     hbrms_energy[i]->Write();
     if(hdecay_energy[i]) hdecay_energy[i]->Write();
     if(hdecay_deltat[i]) hdecay_deltat[i]->Write();
