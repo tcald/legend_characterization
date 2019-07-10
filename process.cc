@@ -201,7 +201,7 @@ int main(int argc, char* argv[]){
     cout << "no user-specified channels or configuration channel list" << endl;
     return 4;
   }
-  
+
   // output tree
   int run, eventnum;
   vector<string> detserial;
@@ -392,10 +392,9 @@ int main(int argc, char* argv[]){
       channel[iwf] = (int) wf->GetID();
       if(chan_map.find(channel[iwf]) == chan_map.end()){
 	if(find(skip_chan.begin(),
-		skip_chan.end(), channel[iwf]) == skip_chan.end()){
+		skip_chan.end(), channel[iwf]) == skip_chan.end())
 	  skip_chan.push_back(channel[iwf]);
-	  continue;
-	}
+	continue;
       }
       int index = chan_map[channel[iwf]];
       detserial[iwf] = serial_numbers[index];
@@ -670,20 +669,21 @@ int main(int argc, char* argv[]){
   outfile->cd();
   outtree->AutoSave();
   for(int i=0; i<(int)chan_map.size(); i++){
-    hdeltat[i]->Write();
-    henergy[i]->Write();
-    henergyf[i]->Write();
-    hbase_energy[i]->Write(hbase_energy[i]->GetName());
-    hbrms_energy[i]->Write();
+    if(hdeltat[i]) hdeltat[i]->Write();
+    if(henergy[i]) henergy[i]->Write();
+    if(henergyf[i]) henergyf[i]->Write();
+    if(hbase_energy[i]) hbase_energy[i]->Write(hbase_energy[i]->GetName());
+    if(hbrms_energy[i]) hbrms_energy[i]->Write();
     if(hdecay_energy[i]) hdecay_energy[i]->Write();
     if(hdecay_deltat[i]) hdecay_deltat[i]->Write();
-    hamp_energy[i]->Write();
-    hdcr_energy[i]->Write();
-    hrise_energy[i]->Write();
-    hamp_energyf[i]->Write();
-    hdcr_energyf[i]->Write();
-    hrise_energyf[i]->Write();
+    if(hamp_energy[i]) hamp_energy[i]->Write();
+    if(hdcr_energy[i]) hdcr_energy[i]->Write();
+    if(hrise_energy[i]) hrise_energy[i]->Write();
+    if(hamp_energy[i]) hamp_energyf[i]->Write();
+    if(hdcr_energy[i]) hdcr_energyf[i]->Write();
+    if(hrise_energyf[i]) hrise_energyf[i]->Write();
   }
+  tdir->cd();
   int ch_count = 0;
   for(auto const& p : chan_map){
     jvalue["channel_map"][ch_count] = p.first;
@@ -692,6 +692,7 @@ int main(int argc, char* argv[]){
   Json::StreamWriterBuilder builder;
   builder["indentation"] = "";
   TObjString* jout=new TObjString(Json::writeString(builder, jvalue).c_str());
+  outfile->cd();
   jout->Write("process_config");
   outfile->Close();
 
