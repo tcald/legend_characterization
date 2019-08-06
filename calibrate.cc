@@ -42,6 +42,15 @@ void Th_scale(TH1D* h, double& offset, double& scale){
     double c0 = h->Integral(i-99,  i);
     if(c0 <= 10.0 || c1 <= 10.0) continue;
     if(c1-c0 > 20*sqrt(c0)){
+      bool valid = true;
+      for(int j=0; j<min(500, i-200); j++){
+	c1 = h->Integral(i-200-j, i-101-j);
+	if(c1 <= 10.0 || c1-c0 <= 10*sqrt(c0)){
+	  valid = false;
+	  break;
+	}
+      }
+      if(!valid) continue;
       bin = i+100;
       break;
     }
