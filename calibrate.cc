@@ -34,35 +34,48 @@ void print_value(string name, int prec, double val, double uncert){
 }
 
 // do a two point energy calibration to get the initial scale
-void Th_scale(TH1D* h, double& offset, double& scale){
+void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
   // find the bin below which most of the spectrum lies
   int bin = 0;
-  for(int i=h->GetNbinsX(); i>200; i--){
-    double c1 = h->Integral(i-199, i-100);
-    double c0 = h->Integral(i-99,  i);
-    if(c0 <= 10.0 || c1 <= 10.0) continue;
-    if(c1-c0 > 20*sqrt(c0)){
-      bool valid = true;
-      for(int j=0; j<min(500, i-200); j++){
-	c1 = h->Integral(i-200-j, i-101-j);
-	if(c1 <= 10.0 || c1-c0 <= 10*sqrt(c0)){
-	  valid = false;
-	  break;
+  if(peak > 0) bin = h->GetXaxis()->FindBin(peak);
+  else{
+    for(int i=h->GetNbinsX(); i>200; i--){
+      double c1 = h->Integral(i-199, i-100);
+      double c0 = h->Integral(i-99,  i);
+      if(c0 <= 10.0 || c1 <= 10.0) continue;
+      if(c1-c0 > 20*sqrt(c0)){
+	bool valid = true;
+	for(int j=0; j<min(500, i-200); j++){
+	  c1 = h->Integral(i-200-j, i-101-j);
+	  if(c1 <= 10.0 || c1-c0 <= 10*sqrt(c0)){
+	    valid = false;
+	    break;
+	  }
 	}
+	if(!valid) continue;
+	bin = i+100;
+	break;
       }
-      if(!valid) continue;
-      bin = i+100;
-      break;
     }
   }
   // find the maximum in the upper third of that region, assume 2615 keV
   int bin1 = 0;
   double mval = 0.0;
-  for(int i=max(1, (int)(2.*bin/3)); i<bin; i++)
-    if(h->GetBinContent(i) > mval){
-      mval = h->GetBinContent(i);
-      bin1 = i;
-    }
+  if(peak > 0){
+    int b0 = h->GetXaxis()->FindBin(0.98*peak);
+    int b1 = h->GetXaxis()->FindBin(1.02*peak);
+    for(int i=b0; i<=b1; i++)
+      if(h->GetBinContent(i) > mval){
+	mval = h->GetBinContent(i);
+	bin1 = i;
+      }
+  }
+  else
+    for(int i=max(1, (int)(2.*bin/3)); i<bin; i++)
+      if(h->GetBinContent(i) > mval){
+	mval = h->GetBinContent(i);
+	bin1 = i;
+      }
   double bk = bin / 2615.;
   TF1* f1 = new TF1("f1", "[0]+gaus(1)",
 		    h->GetXaxis()->GetBinLowEdge(bin1-max(2, (int)(bk*4))),
@@ -227,6 +240,7 @@ int main(int argc, char* argv[]){
   string jfile = "calibrate.json";
   Json::Value jvalue;
   bool use_fixedt = true;
+  map<int, int> thpeak;
   static struct option opts[]{
     {"help",             no_argument, NULL, 'h'},
     {"channel",    required_argument, NULL, 'c'},
@@ -235,9 +249,10 @@ int main(int argc, char* argv[]){
     {"skipchan",   required_argument, NULL, 's'},
     {"jsonconfig", required_argument, NULL, 'j'},
     {"jsonfile",   required_argument, NULL, 'J'},
-    {"fixedtime",        no_argument, NULL, 'f'}
+    {"fixedtime",        no_argument, NULL, 'f'},
+    {"thlocation", required_argument, NULL, 't'}
   };
-  int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:f", opts, NULL);
+  int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
@@ -249,6 +264,8 @@ int main(int argc, char* argv[]){
       cout << "  -j name of input json config file"    << endl;
       cout << "  -J name of output json config file"   << endl;
       cout << "  -f do not use the fixed time pickoff" << endl;
+      cout << "  -t channel,adc where adc is the estimated "
+	   << "     2615 keV peak loaction"            << endl;
     case 'c': chan_cal.push_back(atoi(optarg));  break;
     case 'i': ifname.push_back(string(optarg));  break;
     case 'o': ofname = string(optarg);           break;
@@ -267,9 +284,15 @@ int main(int argc, char* argv[]){
     }
     case 'J': jfile = string(optarg); break;
     case 'f': use_fixedt = false;     break;
+    case 't':{ 
+      string a = string(optarg);
+      int chan = stoi(a.substr(0, a.find(",")));
+      thpeak[chan] = stoi(a.substr(a.find(",")+1, a.size()-1));
+      break;
+    }
     default: return 1;
     }
-    opt = getopt_long(argc, argv, "hc:i:o:s:j:J:f", opts, NULL);
+    opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:", opts, NULL);
   }
   assert(ofname != "" && ifname.size() > 0);
   
@@ -441,8 +464,14 @@ int main(int argc, char* argv[]){
       cout << "getting initial energy scale calibration for channel "
 	   << pr.first << endl;
       // initial energy scale correction
-      Th_scale(henergy[i], eoffset[i], escale[i]);
-      Th_scale(henergyf[i], efoffset[i], efscale[i]);
+      if(thpeak.find(pr.first) == thpeak.end()){
+	Th_scale(henergy[i], eoffset[i], escale[i]);
+	Th_scale(henergyf[i], efoffset[i], efscale[i]);
+      }
+      else{
+	Th_scale(henergy[i], eoffset[i], escale[i], thpeak[pr.first]);
+	Th_scale(henergy[i], eoffset[i], escale[i], thpeak[pr.first]);
+      }
       int nebins = henergyf[i]->FindBin((1.e4-efoffset[i])/efscale[i]);
       double emin = efoffset[i];
       double emax = henergyf[i]->GetXaxis()->GetBinUpEdge(nebins*efscale[i]+
