@@ -470,7 +470,7 @@ int main(int argc, char* argv[]){
       }
       else{
 	Th_scale(henergy[i], eoffset[i], escale[i], thpeak[pr.first]);
-	Th_scale(henergy[i], eoffset[i], escale[i], thpeak[pr.first]);
+	Th_scale(henergy[i], efoffset[i], efscale[i], thpeak[pr.first]);
       }
       int nebins = henergyf[i]->FindBin((1.e4-efoffset[i])/efscale[i]);
       double emin = efoffset[i];
@@ -483,8 +483,12 @@ int main(int argc, char* argv[]){
       }
       hecal[i] = new TH1D(("hecal_"+to_string(i)).c_str(), "",
 			  nebins, emin, emax);
-      for(int bin=1; bin<=nebins; bin++)
-	hecal[i]->SetBinContent(bin, henergy[i]->GetBinContent(bin));
+      for(int bin=1; bin<=nebins; bin++){
+	if(use_fixedt)
+	  hecal[i]->SetBinContent(bin, henergyf[i]->GetBinContent(bin));
+	else
+	  hecal[i]->SetBinContent(bin, henergy[i]->GetBinContent(bin));
+      }
       hecal[i]->SetXTitle("Energy (keV)");
       hecal[i]->SetYTitle("Entries");
       // baseline, baseline rms, and pz constant
