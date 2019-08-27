@@ -62,8 +62,8 @@ void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
   int bin1 = 0;
   double mval = 0.0;
   if(peak > 0){
-    int b0 = h->GetXaxis()->FindBin(0.98*peak);
-    int b1 = h->GetXaxis()->FindBin(1.02*peak);
+    int b0 = h->GetXaxis()->FindBin(0.9*peak);
+    int b1 = h->GetXaxis()->FindBin(1.1*peak);
     for(int i=b0; i<=b1; i++)
       if(h->GetBinContent(i) > mval){
 	mval = h->GetBinContent(i);
@@ -83,9 +83,11 @@ void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
   double base = h->Integral((int)(bin1-65*bk), (int)(bin1-55*bk));
   base += h->Integral((int)(bin1+35*bk), (int)(bin1+45*bk));
   base /= 20;
-  f1->SetParameters(base, h->GetBinContent(bin1), h->GetBinCenter(bin1), 2*bk);
-  f1->SetParLimits(0, base/2, base*2);
-  h->Fit(f1, "QR+");
+  f1->SetParameters(base, h->GetBinContent(bin1),
+		    h->GetBinCenter(bin1), 2*bk);
+  f1->FixParameter(0, base);
+  f1->SetParLimits(2, h->GetBinCenter(bin1)-bk/4, h->GetBinCenter(bin1)+bk/4);
+  h->Fit(f1, "QMR+");
   double val1 = f1->GetParameter(2);
   // find the maximum at the approximate position of 583 keV
   int bin0 = (int) (bin1*583./2615);
@@ -102,13 +104,47 @@ void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
 		    h->GetXaxis()->GetBinUpEdge( bin0+max(2, (int)(bk*2))));
   base =  h->Integral((int)(bin0-30*bk), (int)(bin0-20*bk));
   base += h->Integral((int)(bin0+7*bk), (int)(bin0+17*bk));
-  base /= 20;
-  f0->SetParameters(base, h->GetBinContent(bin0), h->GetBinCenter(bin0), bk);
-  f0->SetParLimits(0, base/2, base*2);
-  h->Fit(f0, "QR+");
+  base /= (int) (22*bk);
+  f0->SetParameters(base, h->GetBinContent(bin0)-base,
+		    h->GetBinCenter(bin0), bk);
+  f0->FixParameter(0, base);
+  f0->SetParLimits(2, h->GetBinCenter(bin0)-bk/4, h->GetBinCenter(bin0)+bk/4);
+  h->Fit(f0, "QRM+");
   double val0 = f0->GetParameter(2);
   scale = (2615-583) / (val1-val0);
   offset = 2615 - scale*val1;
+}
+
+// get a rough estimate of the resolution of the 2615 keV peak
+pair<double, double> GetThRes(TH1D* h, pair<double, double> pr,
+			      pair<double, double> sb0,
+			      pair<double, double> sb1, double pos=0.0){
+  double e0 = 0.0;
+  double e1 = 0.0;
+  if(pos == 0.0) Th_scale(h, e0, e1);
+  else Th_scale(h, e0, e1, pos);
+  int b0 = (int) h->GetXaxis()->FindBin((sb0.first-e0)/e1);
+  int b1 = (int) h->GetXaxis()->FindBin((sb0.second-e0)/e1);
+  int b2 = (int) h->GetXaxis()->FindBin((pr.first-e0)/e1);
+  int b3 = (int) h->GetXaxis()->FindBin((pr.second-e0)/e1);
+  int b4 = (int) h->GetXaxis()->FindBin((sb1.first-e0)/e1);
+  int b5 = (int) h->GetXaxis()->FindBin((sb1.second-e0)/e1);
+  TF1* f = new TF1("ftmp2", "pol0(0)+gaus(1)",
+		   h->GetBinCenter(b1), h->GetBinCenter(b4));
+  f->SetLineColor(8);
+  f->FixParameter(0, (h->Integral(b0, b1)/(1+b1-b0)+
+		      h->Integral(b4, b5)/(1+b5-b4))/2);
+  f->SetParameter(1, h->GetBinContent((int)((b3+b2)*0.5))-
+		  f->GetParameter(0));
+  f->SetParameter(2, ((pr.first+pr.second)/2-e0)/e1);
+  f->SetParameter(3, 3/e1);
+  f->SetParLimits(2, h->GetBinCenter(b2), h->GetBinCenter(b3));
+  h->Fit(f, "QMR+");
+  pair<double, double> res;
+  res.first = f->GetParameter(3);
+  res.second = f->GetParError(3);
+  delete f;
+  return res;
 }
 
 // calibrate the AvsE cut from a scaled A vs E histogram
@@ -196,6 +232,40 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
   return g;
 }
 
+// calibrate A/E from the scaled A/E vs energy histogram
+void AoECal(TH2D* h, double& amin, double& auncert){
+  const double dep = 2615. - 2*511;
+  // get the A/E distribution of the DEP and sideband subtract
+  TAxis* axis = h->GetXaxis();
+  TH1D* havse0 = h->ProjectionY("havse0",
+				 axis->FindBin(dep-5),
+				 axis->FindBin(dep+5));
+  TH1D* havse1 = h->ProjectionY("havse1",
+				 axis->FindBin(dep-25),
+				 axis->FindBin(dep-15));
+  TH1D* havse2 = h->ProjectionY("havse2",
+				 axis->FindBin(dep+15),
+				 axis->FindBin(dep+25));
+  for(int i=1; i<=(int)havse0->GetNbinsX(); i++){
+    double val = havse0->GetBinContent(i);
+    val -= (havse1->GetBinContent(i)+havse2->GetBinContent(i)) * 0.5;
+    havse0->SetBinContent(i, val);
+    if(i>1) havse0->SetBinContent(i, havse0->GetBinContent(i)+
+				  havse0->GetBinContent(i-1));
+  }
+  double aint = havse0->GetMaximum();
+  for(int i=2; i<=(int)havse0->GetNbinsX(); i++)
+    if(havse0->GetBinContent(i)/aint > 0.1){
+      double x0 = havse0->GetBinCenter(i-1);
+      double y0 = havse0->GetBinContent(i-1)/aint;
+      double x1 = havse0->GetBinCenter(i);
+      double y1 = havse0->GetBinContent(i)/aint;
+      amin = x0 + (x1-x0)*(0.1-y0)/(y1-y0);
+      auncert = havse0->GetBinWidth(i)*0.5;
+      break;
+    }
+}
+
 // calibrate the DCR cut from the corrected DCR vs energy
 void DCRCal(TH2D* h, double rejlo, double rejhi, double& cutlo, double& cuthi){
   TH1D* hp = h->ProjectionY("hdcr_proj",
@@ -217,6 +287,7 @@ void DCRCal(TH2D* h, double rejlo, double rejhi, double& cutlo, double& cuthi){
   delete hp;
   delete hp2;
 }
+
 
 int main(int argc, char* argv[]){
 
@@ -241,6 +312,7 @@ int main(int argc, char* argv[]){
   Json::Value jvalue;
   bool use_fixedt = true;
   map<int, int> thpeak;
+  bool get_ct_decay = false;
   static struct option opts[]{
     {"help",             no_argument, NULL, 'h'},
     {"channel",    required_argument, NULL, 'c'},
@@ -250,9 +322,10 @@ int main(int argc, char* argv[]){
     {"jsonconfig", required_argument, NULL, 'j'},
     {"jsonfile",   required_argument, NULL, 'J'},
     {"fixedtime",        no_argument, NULL, 'f'},
-    {"thlocation", required_argument, NULL, 't'}
+    {"thlocation", required_argument, NULL, 't'},
+    {"chargetrap", no_argument, NULL, 'C'}
   };
-  int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:", opts, NULL);
+  int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:C", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
@@ -264,8 +337,10 @@ int main(int argc, char* argv[]){
       cout << "  -j name of input json config file"    << endl;
       cout << "  -J name of output json config file"   << endl;
       cout << "  -f do not use the fixed time pickoff" << endl;
+      cout << "  -C use charge trapping correction"    << endl;
       cout << "  -t channel,adc where adc is the estimated "
-	   << "     2615 keV peak loaction"            << endl;
+	   << " 2615 keV peak loaction"                << endl;
+      return 0;
     case 'c': chan_cal.push_back(atoi(optarg));  break;
     case 'i': ifname.push_back(string(optarg));  break;
     case 'o': ofname = string(optarg);           break;
@@ -290,22 +365,27 @@ int main(int argc, char* argv[]){
       thpeak[chan] = stoi(a.substr(a.find(",")+1, a.size()-1));
       break;
     }
+    case 'C': get_ct_decay = true; break;
     default: return 1;
     }
-    opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:", opts, NULL);
+    opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:C", opts, NULL);
   }
   assert(ofname != "" && ifname.size() > 0);
   
   // read in input files, setup input tree
   TChain* intree = new TChain("tree");
-  vector<TH1D*> hdeltat, henergy, henergyf, hbase, hbrms, hdecay;
+  vector<TH1D*> hdeltat, henergy, henergyf, henergyc1, henergyc2;
+  vector<TH1D*> hbase, hbrms, hdecay;
   vector<TH2D*> hbase_energy, hbrms_energy, hdecay_energy, hdecay_deltat;
-  vector<TH2D*> hamp_energy, hamps_energy, haoe_energy, hdcr_energy;
-  vector<TH2D*> hdcrs_energy, hrise_energy, hrises_energy;
+  vector<TH2D*> hamp_energy, hamps_energy, haoe_energy, haoes_energy;
+  vector<TH2D*> hdcr_energy, hdcrs_energy, hrise_energy, hrises_energy;
   cout << "reading input histograms and configuration" << endl;
   string process_config = "";
   vector<string> serial_numbers;
   vector<double> pz_decay;
+  vector<double> ct_decay;
+  vector<double> ct_frac;
+  vector<int> ct_method;
   for(auto const& n : ifname){
     intree->Add(n.c_str());
     TFile* f = TFile::Open(n.c_str());
@@ -332,6 +412,9 @@ int main(int argc, char* argv[]){
       }
       serial_numbers.resize(chan_map.size());
       pz_decay.resize(chan_map.size());
+      ct_decay.resize(chan_map.size());
+      ct_frac.resize(chan_map.size());
+      ct_method.resize(chan_map.size());
       vector<int> channels;
       vector<string> detectors;
       SetJson(value, "channel_id", channels);
@@ -343,10 +426,15 @@ int main(int argc, char* argv[]){
 	Json::Value val = value[detectors[index]];
 	serial_numbers[pr.second] = detectors[index];
 	SetJson(val, "pz_decay", pz_decay[pr.second]);
+	SetJson(val, "ct_decay", ct_decay[pr.second]);
+	SetJson(val, "ct_frac",  ct_frac[pr.second]);
+	SetJson(val, "ct_method", ct_method[pr.second]);
       }
       hdeltat.resize(chan_map.size(), NULL);
       henergy.resize(chan_map.size(), NULL);
       henergyf.resize(chan_map.size(), NULL);
+      henergyc1.resize(chan_map.size(), NULL);
+      henergyc2.resize(chan_map.size(), NULL);
       hbase.resize(chan_map.size(), NULL);
       hbrms.resize(chan_map.size(), NULL);
       hdecay.resize(chan_map.size(), NULL);
@@ -357,6 +445,7 @@ int main(int argc, char* argv[]){
       hamp_energy.resize(chan_map.size(), NULL);
       hamps_energy.resize(chan_map.size(), NULL);
       haoe_energy.resize(chan_map.size(), NULL);
+      haoes_energy.resize(chan_map.size(), NULL);
       hdcr_energy.resize(chan_map.size(), NULL);
       hdcrs_energy.resize(chan_map.size(), NULL);
       hrise_energy.resize(chan_map.size(), NULL);
@@ -374,12 +463,16 @@ int main(int argc, char* argv[]){
       hdeltat[i]      = Get1DHistOrSum(f, "hdeltat"      +s, hdeltat[i]);
       henergy[i]      = Get1DHistOrSum(f, "henergy"      +s, henergy[i]);
       henergyf[i]     = Get1DHistOrSum(f, "henergyf"     +s, henergyf[i]);
+      henergyc1[i]    = Get1DHistOrSum(f, "henergyc1"    +s, henergyc1[i]);
+      henergyc2[i]    = Get1DHistOrSum(f, "henergyc2"    +s, henergyc2[i]);
       hbase_energy[i] = Get2DHistOrSum(f, "hbase_energy" +s, hbase_energy[i]);
       hbrms_energy[i] = Get2DHistOrSum(f, "hbrms_energy" +s, hbrms_energy[i]);
       hdecay_energy[i]= Get2DHistOrSum(f, "hdecay_energy"+s, hdecay_energy[i]);
       hdecay_deltat[i]= Get2DHistOrSum(f, "hdecay_deltat"+s, hdecay_deltat[i]);
-      if(use_fixedt) s = "f" + s;
+      if(get_ct_decay)      s = "c" + s;
+      else if(use_fixedt)   s = "f" + s;
       hamp_energy[i]  = Get2DHistOrSum(f, "hamp_energy"  +s, hamp_energy[i]);
+      haoe_energy[i]  = Get2DHistOrSum(f, "haoe_energy"  +s, haoe_energy[i]);
       hdcr_energy[i]  = Get2DHistOrSum(f, "hdcr_energy"  +s, hdcr_energy[i]);
       hrise_energy[i] = Get2DHistOrSum(f, "hrise_energy" +s, hrise_energy[i]);
     }
@@ -387,19 +480,24 @@ int main(int argc, char* argv[]){
   }
   intree->SetBranchStatus("*", false);
   intree->SetBranchStatus("channel", true);
-  intree->SetBranchStatus("imax", true);
+  intree->SetBranchStatus("ct_decay", true);
+  intree->SetBranchStatus("ct_value", true);
+  intree->SetBranchStatus("ct_integral", true);
   intree->SetBranchStatus("trappick", true);
-  intree->SetBranchStatus("trapmax", true);
-  intree->SetBranchStatus("dcrslope", true);
   TTreeReader reader(intree);
   TTreeReaderValue<vector<int> > channel(reader, "channel");
   TTreeReaderValue<vector<double> > trappick(reader, "trappick");
+  TTreeReaderValue<vector<double> > ct1_trappick(reader, "ct1_trappick");
+  TTreeReaderValue<vector<double> > ct2_trappick(reader, "ct2_trappick");
+  TTreeReaderValue<vector<double> > ct_integral(reader, "ct_integral");
   TTreeReaderValue<vector<double> > trapmax(reader, "trapmax");
   TTreeReaderValue<vector<double> > imax(reader, "imax");
   TTreeReaderValue<vector<double> > dcrslope(reader, "dcrslope");
   TTreeReaderValue<vector<double> > t1(reader, "t1");
   TTreeReaderValue<vector<double> > t99(reader, "t99");
   TTreeReaderValue<vector<double> > sampling(reader, "sampling");
+  TTreeReaderValue<vector<vector<double> > > ct_dec(reader, "ct_decay");
+  TTreeReaderValue<vector<vector<double> > > ct_val(reader, "ct_value");
   
   // values and histograms to output
   vector<double> base_mean(chan_map.size(), 0.0);
@@ -408,14 +506,24 @@ int main(int argc, char* argv[]){
   vector<double> brms_uncert(chan_map.size(), 0.0);
   vector<double> pz_mean(chan_map.size(), 0.0);
   vector<double> pz_uncert(chan_map.size(), 0.0);
+  vector<double> ct1_mean(chan_map.size(), 0.0);
+  vector<double> ct2_mean(chan_map.size(), 0.0);
+  vector<double> ct1_uncert(chan_map.size(), 0.0);
+  vector<double> ct2_uncert(chan_map.size(), 0.0);
   vector<double> escale(chan_map.size(), 0.0);
   vector<double> efscale(chan_map.size(), 0.0);
+  vector<double> ecscale(chan_map.size(), 0.0);
   vector<double> eoffset(chan_map.size(), 0.0);
   vector<double> efoffset(chan_map.size(), 0.0);
+  vector<double> ecoffset(chan_map.size(), 0.0);
   vector<TH1D*> hecal(chan_map.size(), NULL);
   vector<vector<double> > avse_param(chan_map.size(), vector<double>(4, 0.0));
   vector<vector<double> > avse_uncert(chan_map.size(), vector<double>(4, 0.0));
   vector<TGraphErrors*> gavse(chan_map.size(), NULL);
+  vector<double> aoe_min(chan_map.size(), 0.0);
+  vector<double> aoe_min_uncert(chan_map.size(), 0.0);
+  vector<TGraphErrors*> gresct1(chan_map.size(), NULL);
+  vector<TGraphErrors*> gresct2(chan_map.size(), NULL);
   vector<double> trise_val(chan_map.size(), 0.0);
   vector<double> trise_uncert(chan_map.size(), 0.0);
   vector<double> trise_slope(chan_map.size(), 0.0);
@@ -427,6 +535,155 @@ int main(int argc, char* argv[]){
   vector<double> dcr_cut_lo(chan_map.size(), 0.0);
   vector<double> dcr_cut_hi(chan_map.size(), 0.0);
 
+  // determine the optimal charge trapping time constant
+  const int nct_steps = 100;
+  if(get_ct_decay){
+    vector<vector<double> > ct(chan_map.size());
+    vector<vector<double> > dfrac(chan_map.size());
+    vector<vector<TH1D*> > hE1(chan_map.size());
+    vector<vector<TH1D*> > hE2(chan_map.size());
+    bool first = true;
+    bool valid = true;
+    while(reader.Next()){
+      if(!valid) break;
+      for(int ich=0; ich<(int)channel->size(); ich++){
+	if(find(chan_cal.begin(),
+		chan_cal.end(), channel->at(ich)) == chan_cal.end())
+	  continue;
+	int i = chan_map[channel->at(ich)];
+	if(first){
+	  first = false;
+	  if(ct_val->size() == 0){
+	    valid = false;
+	    break;
+	  }
+	  for(int j=0; j<(int)ct.size(); j++){
+	    ct[j].resize(ct_dec->at(ich).size(), 0.0);
+	    hE1[j].resize(ct_dec->at(ich).size(), NULL);
+	    dfrac[j].resize(nct_steps, 0.0);
+	    hE2[j].resize(nct_steps, NULL);
+	    for(int k=0; k<(int)ct[j].size(); k++){
+	      ct[j][k] = ct_dec->at(ich)[k];
+	      string n = "hct1_" + to_string(j) + "_" + to_string(k);
+	      hE1[j][k] = new TH1D(n.c_str(), "",
+				   henergyc1[i]->GetXaxis()->GetNbins(),
+				   henergyc1[i]->GetXaxis()->GetXmin(),
+				   henergyc1[i]->GetXaxis()->GetXmax());
+	    }
+	    for(int k=0; k<nct_steps; k++){
+	      dfrac[j][k] = (1 + (99*k/((double)nct_steps))) * 1e-8;
+	      string n = "hct2_" + to_string(j) + "_" + to_string(k);
+	      hE2[j][k] = new TH1D(n.c_str(), "",
+				   henergyc1[i]->GetXaxis()->GetNbins()*4,
+				   henergyc1[i]->GetXaxis()->GetXmin(),
+				   henergyc1[i]->GetXaxis()->GetXmax());
+	    }
+	  }
+	}
+	for(int j=0; j<(int)ct_val->at(ich).size(); j++)
+	  hE1[i][j]->Fill(ct_val->at(ich)[j]);
+	for(int j=0; j<nct_steps; j++)
+	  hE2[i][j]->Fill(trappick->at(ich)+dfrac[i][j]*ct_integral->at(ich));
+      }
+    }
+    if(valid){
+      map<int, int>::iterator it = chan_map.begin();
+      for(int i=0; i<(int)hE1.size(); i++){
+	int ch = (*it).first;
+	it ++;
+	vector<double> ct_uncert(hE1[i].size(), 1000.0);
+	vector<double> dfrac_uncert(hE2[i].size(), 0.1*dfrac[i][0]);
+	vector<double> res1(hE1[i].size(), 0.0);
+	vector<double> res1_uncert(hE1[i].size(), 0.0);
+	vector<double> res2(hE2[i].size(), 0.0);
+	vector<double> res2_uncert(hE2[i].size(), 0.0);
+	for(int j=0; j<(int)hE1[i].size(); j++){
+	  pair<double, double> pr;
+	  if(thpeak.find(ch) == thpeak.end())
+	    pr = GetThRes(hE1[i][j], make_pair(2610., 2620.),
+			  make_pair(2570., 2580.), make_pair(2650., 2660.));
+	  else
+	    pr = GetThRes(hE1[i][j], make_pair(2610., 2620.),
+			  make_pair(2570., 2580.), make_pair(2650., 2660.),
+			  thpeak[ch]);
+	  res1[j] = pr.first;
+	  res1_uncert[j] = pr.second;
+	}
+	for(int j=0; j<(int)res1.size(); j++)
+	  if(abs(res1_uncert[j] / res1[j]) > 0.2){
+	    res1.erase(res1.begin()+j);
+	    ct[i].erase(ct[i].begin()+j);
+	    res1_uncert.erase(res1_uncert.begin()+j);
+	    ct_uncert.erase(ct_uncert.begin()+j);
+	  }
+	TGraphErrors* g1 = new TGraphErrors(res1.size(), &ct[i].front(),
+					    &res1.front(), &ct_uncert.front(),
+					    &res1_uncert.front());
+	g1->SetName(("gresct1_"+to_string(i)).c_str());
+	g1->SetTitle("");
+	g1->GetHistogram()->SetXTitle("#tau (ns)");
+	g1->GetHistogram()->SetYTitle("#sigma (ADC)");
+	double minres = 1.e9;
+	double mintau = 0.0;
+	for(int j=0; j<2000; j++){
+	  double tau = ct[i].front()+j*(ct[i].back()-ct[i].front())/2000;
+	  double res = g1->Eval(tau, 0, "S");
+	  if(res < minres){
+	    minres = res;
+	    mintau = tau;
+	  }
+	}
+	ct1_mean[i] = mintau;
+	gresct1[i] = g1;
+	cout << "Ch " << ch << " CT method 1 min resolution of "
+	     << minres << " ADC at tau " << mintau << " ns" << endl; 
+	for(int j=0; j<(int)hE2[i].size(); j++){
+	  pair<double, double> pr;
+	  if(thpeak.find(ch) == thpeak.end())
+	    pr = GetThRes(hE2[i][j], make_pair(2610., 2620.),
+			  make_pair(2570., 2580.), make_pair(2650., 2660.));
+	  else
+	    pr = GetThRes(hE2[i][j], make_pair(2610., 2620.),
+			  make_pair(2570., 2580.), make_pair(2650., 2660.),
+			  thpeak[ch]);
+	  res2[j] = pr.first;
+	  res2_uncert[j] = pr.second;
+	}
+	for(int j=0; j<(int)res2.size(); j++)
+	  if(abs(res2_uncert[j] / res2[j]) > 0.2){
+	    res2.erase(res2.begin()+j);
+	    dfrac[i].erase(dfrac[i].begin()+j);
+	    res2_uncert.erase(res2_uncert.begin()+j);
+	    dfrac_uncert.erase(dfrac_uncert.begin()+j);
+	  }
+	TGraphErrors* g2 = new TGraphErrors(res2.size(), &dfrac[i].front(),
+					    &res2.front(),
+					    &dfrac_uncert.front(),
+					    &res2_uncert.front());
+	g2->SetName(("gresct2_"+to_string(i)).c_str());
+	g2->SetTitle("");
+	g2->GetHistogram()->SetXTitle("D");
+	g2->GetHistogram()->SetYTitle("#sigma (ADC)");
+	minres = 1.e9;
+	double mind = 0.0;
+	for(int j=0; j<2000; j++){
+	  double d =dfrac[i].front()+j*(dfrac[i].back()-dfrac[i].front())/2000;
+	  double res = g2->Eval(d, 0, "S");
+	  if(res < minres){
+	    minres = res;
+	    mind = d;
+	  }
+	}
+	ct2_mean[i] = mind;
+	gresct2[i] = g2;
+	cout << "Ch " << ch << " CT method 2 min resolution of "
+	     << minres << " ADC at c " << mind << endl;
+      }
+    }
+    for(auto const& v : hE1) for(auto const& h : v) if(h) delete h;
+    for(auto const& v : hE2) for(auto const& h : v) if(h) delete h;
+  }
+  
   // grab the calibration parameters if reading from an input configuration
   // otherwise compute them from the input data
   for(auto const& pr : chan_map){
@@ -444,14 +701,20 @@ int main(int argc, char* argv[]){
 	SetJson(jvalue, "base_mean",   base_mean[pr.second]);
 	SetJson(jvalue, "base_uncert", base_uncert[pr.second]);
 	SetJson(jvalue, "pz_mean",     pz_mean[pr.second]);
+	SetJson(jvalue, "ct1_mean",    ct1_mean[pr.second]);
+	SetJson(jvalue, "ct2_mean",    ct2_mean[pr.second]);
+	SetJson(jvalue, "ct_method",   ct_method[pr.second]);
 	SetJson(jvalue, "escale",      escale[pr.second]);
 	SetJson(jvalue, "efscale",     efscale[pr.second]);
+	SetJson(jvalue, "ecscale",     ecscale[pr.second]);
 	SetJson(jvalue, "eoffset",     eoffset[pr.second]);
 	SetJson(jvalue, "efoffset",    efoffset[pr.second]);
+	SetJson(jvalue, "ecoffset",    ecoffset[pr.second]);
 	SetJson(jvalue, "avse_p0",     avse_param[pr.second][0]);
 	SetJson(jvalue, "avse_p1",     avse_param[pr.second][1]);
 	SetJson(jvalue, "avse_p2",     avse_param[pr.second][2]);
 	SetJson(jvalue, "avse_j",      avse_param[pr.second][3]);
+	SetJson(jvalue, "aoe_min",     aoe_min[pr.second]);
 	//SetJson(jvalue, "rise_t",      trise_val[pr.second]);
 	//SetJson(jvalue, "rise_m",      trise_slope[pr.second]);
 	SetJson(jvalue, "dcre_slope",  dcre_slope[pr.second]);
@@ -467,15 +730,29 @@ int main(int argc, char* argv[]){
       if(thpeak.find(pr.first) == thpeak.end()){
 	Th_scale(henergy[i], eoffset[i], escale[i]);
 	Th_scale(henergyf[i], efoffset[i], efscale[i]);
+	if(ct_method[i] == 1)
+	  Th_scale(henergyc1[i], ecoffset[i], ecscale[i]);
+	else
+	  Th_scale(henergyc2[i], ecoffset[i], ecscale[i]);
       }
       else{
 	Th_scale(henergy[i], eoffset[i], escale[i], thpeak[pr.first]);
-	Th_scale(henergy[i], efoffset[i], efscale[i], thpeak[pr.first]);
+	Th_scale(henergyf[i], efoffset[i], efscale[i], thpeak[pr.first]);
+	if(ct_method[i] == 1)
+	  Th_scale(henergyc1[i], ecoffset[i], ecscale[i], thpeak[pr.first]);
+	else
+	  Th_scale(henergyc2[i], ecoffset[i], ecscale[i], thpeak[pr.first]);
       }
-      int nebins = henergyf[i]->FindBin((1.e4-efoffset[i])/efscale[i]);
-      double emin = efoffset[i];
-      double emax = henergyf[i]->GetXaxis()->GetBinUpEdge(nebins*efscale[i]+
-							  efoffset[i]);
+      int nebins = henergyc1[i]->FindBin((1.e4-ecoffset[i])/ecscale[i]);
+      double emin = ecoffset[i];
+      double emax = henergyc1[i]->GetXaxis()->GetBinUpEdge(nebins*ecscale[i]+
+							  ecoffset[i]);
+      if(!get_ct_decay){
+	nebins = henergyf[i]->FindBin((1.e4-efoffset[i])/escale[i]);
+	emin = efoffset[i];
+	emax=henergyf[i]->GetXaxis()->GetBinUpEdge(nebins*efscale[i]+
+						   efoffset[i]);
+      }
       if(!use_fixedt){
 	nebins = henergy[i]->FindBin((1.e4-eoffset[i])/escale[i]);
 	emin = eoffset[i];
@@ -484,7 +761,13 @@ int main(int argc, char* argv[]){
       hecal[i] = new TH1D(("hecal_"+to_string(i)).c_str(), "",
 			  nebins, emin, emax);
       for(int bin=1; bin<=nebins; bin++){
-	if(use_fixedt)
+	if(get_ct_decay){
+	  if(ct_method[i] == 1)
+	    hecal[i]->SetBinContent(bin, henergyc1[i]->GetBinContent(bin));
+	  else
+	    hecal[i]->SetBinContent(bin, henergyc2[i]->GetBinContent(bin));
+	}
+	else if(use_fixedt)
 	  hecal[i]->SetBinContent(bin, henergyf[i]->GetBinContent(bin));
 	else
 	  hecal[i]->SetBinContent(bin, henergy[i]->GetBinContent(bin));
@@ -532,7 +815,7 @@ int main(int argc, char* argv[]){
     }
   }
 
-  // calibrate AvsE and DCR
+  // calibrate AvsE, A/E,  and DCR
   cout << "calibrating avse and dcr" << endl;
   for(auto const& ch : chan_cal){
     int ich = chan_map[ch];
@@ -546,6 +829,15 @@ int main(int argc, char* argv[]){
 				 hamp_energy[ich]->GetYaxis()->GetXmax());
     hamps_energy[ich]->SetXTitle("Energy (keV)");
     hamps_energy[ich]->SetYTitle("A * E/E_{unc}");
+    haoes_energy[ich] = new TH2D(("haoe_energy_"+to_string(ich)).c_str(), "",
+				 hecal[ich]->GetXaxis()->GetNbins(),
+				 hecal[ich]->GetXaxis()->GetXmin(),
+				 hecal[ich]->GetXaxis()->GetXmax(),
+				 haoe_energy[ich]->GetYaxis()->GetNbins(),
+				 haoe_energy[ich]->GetYaxis()->GetXmin(),
+				 haoe_energy[ich]->GetYaxis()->GetXmax());
+    haoes_energy[ich]->SetXTitle("Energy (keV)");
+    haoes_energy[ich]->SetYTitle("A/E");
     hdcrs_energy[ich] = new TH2D(("hdcrs_energy_"+to_string(ich)).c_str(),"",
 				 hecal[ich]->GetXaxis()->GetNbins(),
 				 hecal[ich]->GetXaxis()->GetXmin(),
@@ -555,36 +847,46 @@ int main(int argc, char* argv[]){
 				 hdcr_energy[ich]->GetYaxis()->GetXmax());
     hdcrs_energy[ich]->SetXTitle("Energy (keV)");
     hdcrs_energy[ich]->SetYTitle("DCR Slope");
-    // fixme - binning below
-    haoe_energy[ich] = new TH2D(("haoe_energy_"+to_string(ich)).c_str(), "",
-				hecal[ich]->GetXaxis()->GetNbins(),
-				hecal[ich]->GetXaxis()->GetXmin(),
-				hecal[ich]->GetXaxis()->GetXmax(),
-				hecal[ich]->GetXaxis()->GetNbins()/100,
-				hecal[ich]->GetXaxis()->GetXmin(),
-				hecal[ich]->GetXaxis()->GetXmax());
-    haoe_energy[ich]->SetXTitle("Energy (keV)");
-    haoe_energy[ich]->SetYTitle("A / E");
   }
   
   // populate the histograms
+  reader.Restart();
+  intree->SetBranchStatus("ct_decay", false);
+  intree->SetBranchStatus("ct_value", false);
+  intree->SetBranchStatus("ct_integral", false);
+  intree->SetBranchStatus("imax", true);
+  intree->SetBranchStatus("ct1_trappick", true);
+  intree->SetBranchStatus("ct2_trappick", true);
+  intree->SetBranchStatus("trapmax", true);
+  intree->SetBranchStatus("dcrslope", true);
   while(reader.Next()){
     for(int ich=0; ich<(int)channel->size(); ich++){
       if(find(chan_cal.begin(),
 	      chan_cal.end(), channel->at(ich)) == chan_cal.end())
 	continue;
       int i = chan_map[channel->at(ich)];
-      if(use_fixedt){
+      if(get_ct_decay){
+	double E = ct1_trappick->at(ich)*ecscale[i] + ecoffset[i];
+	double ct = ct1_trappick->at(ich);
+	if(ct_method[i] == 2){
+	  E = ct2_trappick->at(ich)*ecscale[i] + ecoffset[i];
+	  ct = ct2_trappick->at(ich);
+	}
+	hamps_energy[i]->Fill(E, imax->at(ich)*E/ct);
+	haoes_energy[i]->Fill(E, imax->at(ich)/ct);
+	hdcrs_energy[i]->Fill(E, dcrslope->at(ich)-dcre_slope[i]*ct);
+      }
+      else if(use_fixedt){
 	double E = trappick->at(ich)*efscale[i] + efoffset[i];
 	hamps_energy[i]->Fill(E, imax->at(ich)*E/trappick->at(ich));
-	haoe_energy[i]->Fill(E, imax->at(ich)/trappick->at(ich));
+	haoes_energy[i]->Fill(E, imax->at(ich)/trappick->at(ich));
 	hdcrs_energy[i]->Fill(E, dcrslope->at(ich)-
 			      dcre_slope[i]*trappick->at(ich));
       }
       else{
 	double E = trapmax->at(ich)*escale[i] + eoffset[i];
 	hamps_energy[i]->Fill(E, imax->at(ich)*E/trapmax->at(ich));
-	haoe_energy[i]->Fill(E, imax->at(ich)/trapmax->at(ich));
+	haoes_energy[i]->Fill(E, imax->at(ich)/trapmax->at(ich));
 	hdcrs_energy[i]->Fill(E, dcrslope->at(ich)-
 			      dcre_slope[i]*trapmax->at(ich)); 
       }
@@ -595,6 +897,7 @@ int main(int argc, char* argv[]){
   for(auto const& ch : chan_cal){
     int i = chan_map[ch];
     gavse[i] = AvsECal(hamps_energy[i],  avse_param[i], avse_uncert[i]);
+    AoECal(haoes_energy[i], aoe_min[i], aoe_min_uncert[i]);
     DCRCal(hdcrs_energy[i], 0.01, 0.01, dcr_cut_lo[i], dcr_cut_hi[i]);
   }
   
@@ -623,8 +926,16 @@ int main(int argc, char* argv[]){
 	      chan_cal.end(), channel->at(ich)) == chan_cal.end())
 	continue;
       int i = chan_map[channel->at(ich)];
-      double E = trappick->at(ich)*efscale[i] + efoffset[i];
-      double avse = -imax->at(ich)*E/trappick->at(ich);
+      double E = ct1_trappick->at(ich)*ecscale[i] + ecoffset[i];
+      double avse = -imax->at(ich)*E/ct1_trappick->at(ich);
+      if(ct_method[i] == 2){
+	E = ct2_trappick->at(ich)*ecscale[i] + ecoffset[i];
+	avse = -imax->at(ich)*E/ct2_trappick->at(ich);
+      }
+      if(!get_ct_decay){
+	E = trappick->at(ich)*efscale[i] + efoffset[i];
+	avse = -imax->at(ich)*E/trappick->at(ich);
+      }
       if(!use_fixedt){
 	E = trapmax->at(ich)*escale[i] + eoffset[i];
 	avse = -imax->at(ich)*E/trapmax->at(ich);
@@ -680,12 +991,15 @@ int main(int argc, char* argv[]){
     print_value("base    ", 3, base_mean[i],     base_uncert[i]);
     print_value("brms    ", 3, brms_mean[i],     brms_uncert[i]);
     print_value("pz      ", 3, pz_mean[i],       pz_uncert[i]);
+    print_value("ct tau  ", 3, ct1_mean[i],      ct1_uncert[i]);
+    print_value("ct frac ", 6, ct2_mean[i],      ct2_uncert[i]);
     print_value("avse p0 ", 3, avse_param[i][0], avse_uncert[i][0]);
     print_value("avse p1 ", 3, avse_param[i][1], avse_uncert[i][1]);
     print_value("avse p2 ", 3, avse_param[i][2], avse_uncert[i][2]);
     print_value("avse j  ", 3, avse_param[i][3], avse_uncert[i][3]);
-    print_value("rise t  ", 3, trise_val[i],     trise_uncert[i]);
-    print_value("rise m  ", 3, trise_slope[i],   trise_suncert[i]);
+    print_value("aoe min ", 3, aoe_min[i],       aoe_min_uncert[i]);
+    //print_value("rise t  ", 3, trise_val[i],     trise_uncert[i]);
+    //print_value("rise m  ", 3, trise_slope[i],   trise_suncert[i]);
     print_value("dcr  m  ", 3, dcre_slope[i],    dcre_uncert[i]);
     print_value("dcr  lo ", 3, dcr_cut_lo[i],    0.0);
     print_value("dcr  hi ", 3, dcr_cut_hi[i],    0.0);
@@ -717,7 +1031,7 @@ int main(int argc, char* argv[]){
   vector<string> detserial;
   vector<int> chan;
   vector<double> baseSigma, nbaserms, timestamp, dt, T0, trise;
-  vector<double> trapECal, trapEFCal, /*trapEFRCal,*/ avse, aoe, dcr;
+  vector<double> trapECal, trapEFCal, trapEFCCal,/*trapEFRCal,*/avse, aoe, dcr;
   TFile* outfile = new TFile(ofname.c_str(), "recreate");
   tdir->cd();
   TTree* outtree = new TTree("tree", "tree");
@@ -733,6 +1047,7 @@ int main(int argc, char* argv[]){
   outtree->Branch("trise", &trise);
   outtree->Branch("trapECal", &trapECal);
   outtree->Branch("trapEFCal", &trapEFCal);
+  outtree->Branch("trapEFCCal", &trapEFCCal);
   //outtree->Branch("trapEFRCal", &trapEFRCal);
   outtree->Branch("avse", &avse);
   outtree->Branch("aoe", &aoe);
@@ -758,6 +1073,7 @@ int main(int argc, char* argv[]){
     trise.assign(nwf, 0.0);
     trapECal.assign(nwf, 0.0);
     trapEFCal.assign(nwf, 0.0);
+    trapEFCCal.assign(nwf, 0.0);
     //trapEFRCal.assign(nwf, 0.0);
     avse.assign(nwf, 0.0);
     aoe.assign(nwf, 0.0);
@@ -777,18 +1093,42 @@ int main(int argc, char* argv[]){
       trise[ich] = t99->at(ich)-t1->at(ich);
       trapECal[ich] = trapmax->at(ich)*escale[i]+eoffset[i];
       trapEFCal[ich] = trappick->at(ich)*efscale[i]+efoffset[i];
+      if(ct_method[i] == 1)
+	trapEFCCal[ich] = ct1_trappick->at(ich)*ecscale[i]+ecoffset[i];
+      else if(ct_method[i] == 2)
+	trapEFCCal[ich] = ct2_trappick->at(ich)*ecscale[i]+ecoffset[i];
       //trapEFRCal[i] = trapEFCal[i] + ((trise_val[i] -
       //                                 trise[i])) / trise_slope[i];
-      avse[ich] = avse_param[i][0] + avse_param[i][1]*trapEFCal[ich];
-      avse[ich] += avse_param[i][2]*pow(trapEFCal[ich], 2);
-      if(use_fixedt)
+      double E = trapEFCCal[ich];
+      if(!get_ct_decay) E = trapEFCal[ich];
+      if(!use_fixedt) E = trapECal[ich];
+      
+      avse[ich] = avse_param[i][0] + avse_param[i][1]*E;
+      avse[ich] += avse_param[i][2]*pow(E, 2);
+      if(get_ct_decay){
+	if(ct_method[i] == 1){
+	  avse[ich] -= imax->at(ich)*trapEFCCal[ich]/ct1_trappick->at(ich);
+	  aoe[ich] = imax->at(ich) / ct1_trappick->at(ich);
+	}
+	else if(ct_method[i] == 2){
+	  avse[ich] -= imax->at(ich)*trapEFCCal[ich]/ct2_trappick->at(ich);
+	  aoe[ich] = imax->at(ich) / ct2_trappick->at(ich);
+	}
+      }
+      else if(use_fixedt){
 	avse[ich] -= imax->at(ich)*trapEFCal[ich]/trappick->at(ich);
-      else
+	aoe[ich] = imax->at(ich) / trappick->at(ich);
+      }
+      else{
 	avse[ich] -= imax->at(ich)*trapECal[ich]/trapmax->at(ich);
+	aoe[ich] = imax->at(ich) / trapmax->at(ich);
+      }
       avse[ich] /= avse_param[i][3];
-      aoe[ich] = imax->at(ich) / trapEFCal[ich];
+      aoe[ich] -= aoe_min[i] + 1;
       // fixme - this places the cuts at -1 to 1, probably not what we want
-      if(use_fixedt)
+      if(get_ct_decay)
+	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*ct_trappick->at(ich);
+      else if(use_fixedt)
 	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*trappick->at(ich);
       else
 	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*trapmax->at(ich);
@@ -810,6 +1150,10 @@ int main(int argc, char* argv[]){
       henergy[i]->Write(("henergy_"+to_string(p.first)).c_str());
     if(henergyf[i])
       henergyf[i]->Write(("henergyf_"+to_string(p.first)).c_str());
+    if(henergyc1[i])
+      henergyc1[i]->Write(("henergyc1_"+to_string(p.first)).c_str());
+    if(henergyc2[i])
+      henergyc2[i]->Write(("henergyc2_"+to_string(p.first)).c_str());
     if(hbase[i])
       hbase[i]->Write(("hbase_"+to_string(p.first)).c_str());
     if(hbrms[i])
@@ -827,18 +1171,26 @@ int main(int argc, char* argv[]){
     if(hamp_energy[i])
       hamp_energy[i]->Write(("hamp_energy_"+to_string(p.first)).c_str());
     if(hamps_energy[i])
-      hamps_energy[i]->Write(("hamps_energy"+to_string(p.first)).c_str());
+      hamps_energy[i]->Write(("hamps_energy_"+to_string(p.first)).c_str());
+    if(haoe_energy[i])
+      haoe_energy[i]->Write(("haoe_energy_"+to_string(p.first)).c_str());
+    if(haoes_energy[i])
+      haoes_energy[i]->Write(("haoes_energy_"+to_string(p.first)).c_str());
     if(hdcr_energy[i])
       hdcr_energy[i]->Write(("hdcr_energy_"+to_string(p.first)).c_str());
-    if(hdcrs_energy[i]) hdcrs_energy[i]->Write();
+    if(hdcrs_energy[i])
+      hdcrs_energy[i]->Write(("hdcrs_energy_"+to_string(p.first)).c_str());
     if(hrise_energy[i])
       hrise_energy[i]->Write(("hrise_energy_"+to_string(p.first)).c_str());
-    if(hrises_energy[i]) hrises_energy[i]->Write();
+    if(hrises_energy[i])
+      hrises_energy[i]->Write((("hrises_energy_"+to_string(p.first)).c_str()));
     if(hrise_slope[i]) hrise_slope[i]->Write();
     if(hrises_energy_proj[i]) hrises_energy_proj[i]->Write();
     if(henergy[i]) henergy[i]->Write();
     if(hecal[i]) hecal[i]->Write();
     if(gavse[i]) gavse[i]->Write();
+    if(gresct1[i]) gresct1[i]->Write();
+    if(gresct2[i]) gresct2[i]->Write();
   }
   outfile->WriteObject(&chan_map,    "chan_map");
   outfile->WriteObject(&base_mean,   "base_mean");
@@ -847,7 +1199,9 @@ int main(int argc, char* argv[]){
   outfile->WriteObject(&brms_uncert, "brms_uncert");
   outfile->WriteObject(&pz_mean,     "pz_mean");
   outfile->WriteObject(&pz_uncert,   "pz_uncert");
-
+  outfile->WriteObject(&ct1_mean,    "ct1_mean");
+  outfile->WriteObject(&ct2_mean,    "ct2_mean");
+  
   // write calibration parameters to a json file if not reading from one
   cout << "writing calibration parameters to " << jfile << endl;
   for(auto const& ch : chan_cal){
@@ -856,14 +1210,20 @@ int main(int argc, char* argv[]){
     jvalue[s]["base_mean"]  = base_mean[i];
     jvalue[s]["base_rms"]   = brms_mean[i];
     jvalue[s]["pz_mean"]    = pz_mean[i];
+    jvalue[s]["ct1_mean"]   = ct1_mean[i];
+    jvalue[s]["ct2_mean"]   = ct2_mean[i];
+    jvalue[s]["ct_method"]  = ct_method[i];
     jvalue[s]["escale"]     = escale[i];
     jvalue[s]["eoffset"]    = eoffset[i];
     jvalue[s]["efscale"]    = efscale[i];
     jvalue[s]["efoffset"]   = efoffset[i];
+    jvalue[s]["ecscale"]    = ecscale[i];
+    jvalue[s]["ecoffset"]   = ecscale[i];
     jvalue[s]["avse_p0"]    = avse_param[i][0];
     jvalue[s]["avse_p1"]    = avse_param[i][1];
     jvalue[s]["avse_p2"]    = avse_param[i][2];
     jvalue[s]["avse_j"]     = avse_param[i][3];
+    jvalue[s]["aoe_min"]    = aoe_min[i];
     //jvalue[s]["rise_t"]     = trise_val[i];
     //jvalue[s]["rise_m"]     = trise_slope[i];
     jvalue[s]["dcre_slope"] = dcre_slope[i];

@@ -28,7 +28,7 @@ TH2D* Get2DHistOrSum(TFile* file, string hname, TH2D* hist){
   TH2D* h = (TH2D*) file->Get(hname.c_str());
   if(!h) return hist;
   if(hist){
-    hist->Add(h);                                                               
+    hist->Add(h);
     return hist;
   }
   else{
