@@ -60,8 +60,8 @@ int main(int argc, char* argv[]){
   int aebins2 = 1000;
   double avsemin = -15.0;
   double avsemax = 5.0;
-  double aoemin = -2.0;
-  double aoemax = -0.5;
+  double aoemin = 0.0;
+  double aoemax = 2.0;
 
   // option handling
   vector<string> infname;
@@ -288,7 +288,7 @@ int main(int argc, char* argv[]){
       havseE[i]->Fill(trapEFCal->at(ich), avse->at(ich));
       haoeE[i]->Fill(trapEFCal->at(ich), aoe->at(ich));
       if(avse->at(ich) >= -1) hEFCal_avse[i]->Fill(trapEFCal->at(ich));
-      if(aoe->at(ich) >= 0) hEFCal_aoe[i]->Fill(trapEFCal->at(ich));
+      if(aoe->at(ich) >= 1) hEFCal_aoe[i]->Fill(trapEFCal->at(ich));
     }
 
   // clean up template histograms
@@ -677,7 +677,7 @@ int main(int argc, char* argv[]){
 	double b1 = h1->GetBinContent(j)-(b0+b2)*0.5*(d1.second-d1.first);
 	h1->SetBinContent(j, max(0.0, b1));
       }
-      dacc = h1->Integral(h1->GetXaxis()->FindBin(-1.0),
+      dacc = h1->Integral(h1->GetXaxis()->FindBin(1.0),
 				 h1->GetNbinsX());
       dacc /= h1->Integral(0, h1->GetNbinsX());
       delete h0;
@@ -698,7 +698,7 @@ int main(int argc, char* argv[]){
 	double b1 = h1->GetBinContent(j)-(b0+b2)*0.5*(s1.second-s1.first);
 	h1->SetBinContent(j, max(0.0, b1));
       }
-      sacc = h1->Integral(h1->GetXaxis()->FindBin(-1.0),
+      sacc = h1->Integral(h1->GetXaxis()->FindBin(1.0),
 				 h1->GetNbinsX());
       sacc /= h1->Integral(0, h1->GetNbinsX());
       delete h0;

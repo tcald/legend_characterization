@@ -1124,7 +1124,7 @@ int main(int argc, char* argv[]){
 	aoe[ich] = imax->at(ich) / trapmax->at(ich);
       }
       avse[ich] /= avse_param[i][3];
-      aoe[ich] -= aoe_min[i] + 1;
+      aoe[ich] -= aoe_min[i] - 1;
       // fixme - this places the cuts at -1 to 1, probably not what we want
       if(get_ct_decay)
 	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*ct_trappick->at(ich);
