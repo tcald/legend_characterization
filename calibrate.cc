@@ -202,12 +202,12 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
 				 axis->FindBin(dep-5),
 				 axis->FindBin(dep+5));
   TH1D* havse1 = ha->ProjectionY("havse1",
-				 axis->FindBin(dep-25),
-				 axis->FindBin(dep-15));
+				 axis->FindBin(dep-50),
+				 axis->FindBin(dep-20));
   TH1D* havse2 = ha->ProjectionY("havse2",
-				 axis->FindBin(dep+15),
-				 axis->FindBin(dep+25));
-  for(int i=1; i<=(int)havse0->GetNbinsX(); i++){
+				 axis->FindBin(dep+50),
+				 axis->FindBin(dep+80));
+  for(int i=0; i<=(int)havse0->GetNbinsX(); i++){
     double val = havse0->GetBinContent(i);
     val -= (havse1->GetBinContent(i)+havse2->GetBinContent(i)) * 0.5;
     havse0->SetBinContent(i, val);

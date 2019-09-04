@@ -19,6 +19,9 @@ libs = '`root-config --libs` -ltbb -lMinuit -l jsoncpp '
 include += '-I$MGDODIR/Transforms -I$MGDODIR/MJDB -I$MGDODIR/Base -I$MGDODIR/Root -I$MGDODIR/Majorana -I$MGDODIR/tam/inc -I$MGDODIR/tam/include -I$MGDODIR/Tabree '
 libs += '-L$MGDODIR/lib -l MGDOTransforms -lMGDOMJDB -lMGDORoot -lMGDOBase -lMGDOMajorana -lMGDOTabree '
 
+include += '-I$GATDIR/BaseClasses '
+libs += '-L$GATDIR/lib -lGATBaseClasses '
+
 debug = False
 clean = False
 

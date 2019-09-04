@@ -1,5 +1,4 @@
 #include "utils.hh"
-#include <MGTRun.hh>
 #include <MJTRun.hh>
 #include <MGTEvent.hh>
 #include <MGTWaveform.hh>
@@ -383,8 +382,7 @@ int main(int argc, char* argv[]){
   int nentries = (int) tree.GetEntries();
   if(max_wf > 0) nentries = min(nentries, max_wf);
   TTreeReader reader(&tree);
-  //TTreeReaderValue<MGTRun> mgtrun(reader, "run");
-  TTreeReaderValue<MJTRun> mgtrun(reader, "run");
+  TTreeReaderValue<MJTRun> mjtrun(reader, "run");
   TTreeReaderValue<MGTEvent> event(reader, "event");
 
   MGWFPoleZeroCorrection* pole_zero=new MGWFPoleZeroCorrection();
@@ -413,7 +411,7 @@ int main(int argc, char* argv[]){
     lpercent = cpercent;
     if(iev >= nentries) break;
     if(iev % 10000 == 0 && iev > 0) outtree->AutoSave();
-    run = mgtrun->GetRunNumber();
+    run = mjtrun->GetRunNumber();
     // event->GetEventNumber() is 0 for the basic event builder
     if(run != lrun){
       lrun = run;
