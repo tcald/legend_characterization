@@ -691,35 +691,58 @@ int main(int argc, char* argv[]){
       cout << "skipping channel " << pr.first << endl;
       continue;
     }
-    else if(find(chan_cal.begin(), chan_cal.end(), pr.first)==chan_cal.end()){
+    else if(find(chan_cal.begin(), chan_cal.end(), pr.first)!=chan_cal.end()){
       if(!json_config){
 	cout << "channel " << pr.first << " has not been specified "
 	     << "for calibration, and no configuration file" << endl;
 	return 4;
       }
       else{
-	SetJson(jvalue, "base_mean",   base_mean[pr.second]);
-	SetJson(jvalue, "base_uncert", base_uncert[pr.second]);
-	SetJson(jvalue, "pz_mean",     pz_mean[pr.second]);
-	SetJson(jvalue, "ct1_mean",    ct1_mean[pr.second]);
-	SetJson(jvalue, "ct2_mean",    ct2_mean[pr.second]);
-	SetJson(jvalue, "ct_method",   ct_method[pr.second]);
-	SetJson(jvalue, "escale",      escale[pr.second]);
-	SetJson(jvalue, "efscale",     efscale[pr.second]);
-	SetJson(jvalue, "ecscale",     ecscale[pr.second]);
-	SetJson(jvalue, "eoffset",     eoffset[pr.second]);
-	SetJson(jvalue, "efoffset",    efoffset[pr.second]);
-	SetJson(jvalue, "ecoffset",    ecoffset[pr.second]);
-	SetJson(jvalue, "avse_p0",     avse_param[pr.second][0]);
-	SetJson(jvalue, "avse_p1",     avse_param[pr.second][1]);
-	SetJson(jvalue, "avse_p2",     avse_param[pr.second][2]);
-	SetJson(jvalue, "avse_j",      avse_param[pr.second][3]);
-	SetJson(jvalue, "aoe_min",     aoe_min[pr.second]);
-	//SetJson(jvalue, "rise_t",      trise_val[pr.second]);
-	//SetJson(jvalue, "rise_m",      trise_slope[pr.second]);
-	SetJson(jvalue, "dcre_slope",  dcre_slope[pr.second]);
-	SetJson(jvalue, "dcr_cut_lo",  dcr_cut_lo[pr.second]);
-	SetJson(jvalue, "dcr_cut_hi",  dcr_cut_hi[pr.second]);
+	Json::Value value = jvalue[serial_numbers[pr.second]];
+	SetJson(value, "base_mean",   base_mean[pr.second]);
+	SetJson(value, "base_uncert", base_uncert[pr.second]);
+	SetJson(value, "pz_mean",     pz_mean[pr.second]);
+	SetJson(value, "ct1_mean",    ct1_mean[pr.second]);
+	SetJson(value, "ct2_mean",    ct2_mean[pr.second]);
+	SetJson(value, "ct_method",   ct_method[pr.second]);
+	SetJson(value, "escale",      escale[pr.second]);
+	SetJson(value, "efscale",     efscale[pr.second]);
+	SetJson(value, "ecscale",     ecscale[pr.second]);
+	SetJson(value, "eoffset",     eoffset[pr.second]);
+	SetJson(value, "efoffset",    efoffset[pr.second]);
+	SetJson(value, "ecoffset",    ecoffset[pr.second]);
+	SetJson(value, "avse_p0",     avse_param[pr.second][0]);
+	SetJson(value, "avse_p1",     avse_param[pr.second][1]);
+	SetJson(value, "avse_p2",     avse_param[pr.second][2]);
+	SetJson(value, "avse_j",      avse_param[pr.second][3]);
+	SetJson(value, "aoe_min",     aoe_min[pr.second]);
+	//SetJson(value, "rise_t",      trise_val[pr.second]);
+	//SetJson(value, "rise_m",      trise_slope[pr.second]);
+	SetJson(value, "dcre_slope",  dcre_slope[pr.second]);
+	SetJson(value, "dcr_cut_lo",  dcr_cut_lo[pr.second]);
+	SetJson(value, "dcr_cut_hi",  dcr_cut_hi[pr.second]);
+	for(int i=0; i<(int)chan_map.size(); i++){
+	  if(henergyf[i] == NULL) continue;
+	  int nebins = henergyf[i]->FindBin((1.e4-efoffset[i])/efscale[i]);
+	  double emin = efoffset[i];
+	  double emax = henergyf[i]->GetXaxis()->GetBinUpEdge(nebins*efscale[i]+
+							      efoffset[i]);
+	  if(!use_fixedt){
+	    nebins = henergy[i]->FindBin((1.e4-eoffset[i])/escale[i]);
+	    emin = eoffset[i];
+	    emax=henergy[i]->GetXaxis()->GetBinUpEdge(nebins*escale[i]+eoffset[i]);
+	  }
+	  hecal[i] = new TH1D(("hecal_"+to_string(i)).c_str(), "",
+			      nebins, emin, emax);
+	  for(int bin=1; bin<=nebins; bin++){
+	    if(use_fixedt)
+	      hecal[i]->SetBinContent(bin, henergyf[i]->GetBinContent(bin));
+	    else
+	      hecal[i]->SetBinContent(bin, henergy[i]->GetBinContent(bin));
+	  }
+	  hecal[i]->SetXTitle("Energy (keV)");
+	  hecal[i]->SetYTitle("Entries");
+	}
       }
     }
     else{
