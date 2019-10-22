@@ -297,10 +297,6 @@ int main(int argc, char* argv[]){
   gStyle->SetTitleFont(132, "XYZ");
   tdir = gROOT->CurrentDirectory();
 
-  // Tl peaks to use for the rise time correction
-  //const vector<double> tl_peaks({338.0, 510.5, 583.0, 726.5,
-  //	794.0, 860.0, 911.0, 968.0, 2615.0});
-
   //option handling
   map<int, int> chan_map;
   vector<int> chan_cal;
@@ -376,7 +372,8 @@ int main(int argc, char* argv[]){
   TChain* intree = new TChain("tree");
   vector<TH1D*> hdeltat, henergy, henergyf, henergyc1, henergyc2;
   vector<TH1D*> hbase, hbrms, hdecay;
-  vector<TH2D*> hbase_energy, hbrms_energy, hdecay_energy, hdecay_deltat;
+  vector<TH2D*> hbase_energy, hbase_deltat, hbrms_deltat;
+  vector<TH2D*> hbrms_energy, hdecay_energy, hdecay_deltat;
   vector<TH2D*> hamp_energy, hamps_energy, haoe_energy, haoes_energy;
   vector<TH2D*> hdcr_energy, hdcrs_energy, hrise_energy, hrises_energy;
   cout << "reading input histograms and configuration" << endl;
@@ -439,6 +436,8 @@ int main(int argc, char* argv[]){
       hbrms.resize(chan_map.size(), NULL);
       hdecay.resize(chan_map.size(), NULL);
       hbase_energy.resize(chan_map.size(), NULL);
+      hbase_deltat.resize(chan_map.size(), NULL);
+      hbrms_deltat.resize(chan_map.size(), NULL);
       hbrms_energy.resize(chan_map.size(), NULL);
       hdecay_energy.resize(chan_map.size(), NULL);
       hdecay_deltat.resize(chan_map.size(), NULL);
@@ -466,6 +465,8 @@ int main(int argc, char* argv[]){
       henergyc1[i]    = Get1DHistOrSum(f, "henergyc1"    +s, henergyc1[i]);
       henergyc2[i]    = Get1DHistOrSum(f, "henergyc2"    +s, henergyc2[i]);
       hbase_energy[i] = Get2DHistOrSum(f, "hbase_energy" +s, hbase_energy[i]);
+      hbase_deltat[i] = Get2DHistOrSum(f, "hbase_deltat" +s, hbase_deltat[i]);
+      hbrms_deltat[i] = Get2DHistOrSum(f, "hbrms_deltat" +s, hbrms_deltat[i]);
       hbrms_energy[i] = Get2DHistOrSum(f, "hbrms_energy" +s, hbrms_energy[i]);
       hdecay_energy[i]= Get2DHistOrSum(f, "hdecay_energy"+s, hdecay_energy[i]);
       hdecay_deltat[i]= Get2DHistOrSum(f, "hdecay_deltat"+s, hdecay_deltat[i]);
@@ -683,7 +684,7 @@ int main(int argc, char* argv[]){
     for(auto const& v : hE1) for(auto const& h : v) if(h) delete h;
     for(auto const& v : hE2) for(auto const& h : v) if(h) delete h;
   }
-  
+
   // grab the calibration parameters if reading from an input configuration
   // otherwise compute them from the input data
   for(auto const& pr : chan_map){
@@ -691,7 +692,7 @@ int main(int argc, char* argv[]){
       cout << "skipping channel " << pr.first << endl;
       continue;
     }
-    else if(find(chan_cal.begin(), chan_cal.end(), pr.first)!=chan_cal.end()){
+    else if(find(chan_cal.begin(), chan_cal.end(), pr.first)==chan_cal.end()){
       if(!json_config){
 	cout << "channel " << pr.first << " has not been specified "
 	     << "for calibration, and no configuration file" << endl;
@@ -716,8 +717,6 @@ int main(int argc, char* argv[]){
 	SetJson(value, "avse_p2",     avse_param[pr.second][2]);
 	SetJson(value, "avse_j",      avse_param[pr.second][3]);
 	SetJson(value, "aoe_min",     aoe_min[pr.second]);
-	//SetJson(value, "rise_t",      trise_val[pr.second]);
-	//SetJson(value, "rise_m",      trise_slope[pr.second]);
 	SetJson(value, "dcre_slope",  dcre_slope[pr.second]);
 	SetJson(value, "dcr_cut_lo",  dcr_cut_lo[pr.second]);
 	SetJson(value, "dcr_cut_hi",  dcr_cut_hi[pr.second]);
@@ -798,18 +797,20 @@ int main(int argc, char* argv[]){
       hecal[i]->SetXTitle("Energy (keV)");
       hecal[i]->SetYTitle("Entries");
       // baseline, baseline rms, and pz constant
-      int ebin0 =
-	hbase_energy[i]->GetXaxis()->FindBin((200-eoffset[i])/escale[i]);
-      int ebin1 =
-	hbase_energy[i]->GetXaxis()->FindBin((5000-eoffset[i])/escale[i]);
-      hbase[i] =  hbase_energy[i]->ProjectionY(("hbase_"+to_string(i)).c_str(),
-					       ebin0, ebin1);
-      hbrms[i] =  hbrms_energy[i]->ProjectionY(("hbrms_"+to_string(i)).c_str(),
-					       ebin0, ebin1);
-      base_mean[i] = hbase[i]->GetMean();
-      brms_mean[i] = hbrms[i]->GetMean();
+      int dtbin0 = hbase_deltat[i]->GetXaxis()->FindBin(500.0);
+      int dtbin1 = hbase_deltat[i]->GetXaxis()->GetNbins();
+      hbase[i] =  hbase_deltat[i]->ProjectionY(("hbase_"+to_string(i)).c_str(),
+					       dtbin0, dtbin1);
+      hbrms[i] =  hbrms_deltat[i]->ProjectionY(("hbrms_"+to_string(i)).c_str(),
+					       dtbin0, dtbin1);
+      base_mean[i] = hbase[i]->GetBinCenter(hbase[i]->GetMaximumBin());
+      brms_mean[i] = hbrms[i]->GetBinCenter(hbrms[i]->GetMaximumBin());
       base_uncert[i]  = hbase[i]->GetMeanError();
       brms_uncert[i]  = hbrms[i]->GetMeanError();
+      int ebin0 =
+	hdecay_energy[i]->GetXaxis()->FindBin((200-eoffset[i])/escale[i]);
+      int ebin1 =
+	hdecay_energy[i]->GetXaxis()->FindBin((5000-eoffset[i])/escale[i]);
       hdecay[i]=hdecay_energy[i]->ProjectionY(("hdecay_"+to_string(i)).c_str(),
 						ebin0, ebin1);
       if(hdecay[i]->GetMaximum() > 0.9*hdecay[i]->Integral()){
@@ -969,43 +970,6 @@ int main(int argc, char* argv[]){
       hrises_energy[i]->Fill(E, (t99->at(ich)-
 				 t1->at(ich))*sampling->at(ich));
     }
-  /*
-  for(int ich=0; ich<(int)hrises_energy.size(); ich++){
-    vector<double> rise_slope;
-    vector<double> rise_error;
-    vector<double> euncert(tl_peaks.size(), 1.0);
-    TAxis* axis = hrises_energy[ich]->GetYaxis();
-    TProfile* hproj = hrises_energy[ich]->ProfileX(("hrises_energy_proj_" +
-						    to_string(ich)).c_str(),
-						   axis->FindBin(30.0),
-						   axis->FindBin(60.0));
-    TF1* fflat = new TF1(("fflat_"+to_string(ich)).c_str(), "[0]", 300,3000);
-    fflat->SetLineColor(8);
-    hproj->Fit(fflat, "QFR+");
-    trise_val[ich] = fflat->GetParameter(0);
-    trise_uncert[ich] = fflat->GetParError(0);
-    for(int ip=0; ip<(int)tl_peaks.size(); ip++){
-      TF1* fn = new TF1(("frise_"+to_string(ich)+"_"+to_string(ip)).c_str(),
-			"[0]+[1]*x", tl_peaks[ip]*0.99, tl_peaks[ip]*1.01);
-      hproj->Fit(fn, "QFR+");
-      rise_slope.push_back(fn->GetParameter(1));
-      rise_error.push_back(fn->GetParError(1));
-    }
-    hrises_energy_proj[ich] = hproj;
-    hrise_slope[ich] = new TGraphErrors(tl_peaks.size(),
-					&tl_peaks.front(), &rise_slope.front(),
-					&euncert.front(), &rise_error.front());
-    hrise_slope[ich]->SetName(("grise_slope_"+to_string(ich)).c_str());
-    hrise_slope[ich]->SetTitle("");
-    hrise_slope[ich]->GetHistogram()->SetXTitle("Energy (keV)");
-    hrise_slope[ich]->GetHistogram()->SetYTitle("Rise Time Slope (ns/keV)");
-    TF1* fconst = new TF1(("frise_const_"+to_string(ich)).c_str(),
-			  "[0]", tl_peaks[0]-5, tl_peaks[tl_peaks.size()-1]+5);
-    hrise_slope[ich]->Fit(fconst, "QFR+");
-    trise_slope[ich] = fconst->GetParameter(0);
-    trise_suncert[ich] = fconst->GetParError(0);
-  }
-  */
     
   // print the calibration parameters
   for(auto const& ch : chan_cal){
@@ -1021,8 +985,6 @@ int main(int argc, char* argv[]){
     print_value("avse p2 ", 3, avse_param[i][2], avse_uncert[i][2]);
     print_value("avse j  ", 3, avse_param[i][3], avse_uncert[i][3]);
     print_value("aoe min ", 3, aoe_min[i],       aoe_min_uncert[i]);
-    //print_value("rise t  ", 3, trise_val[i],     trise_uncert[i]);
-    //print_value("rise m  ", 3, trise_slope[i],   trise_suncert[i]);
     print_value("dcr  m  ", 3, dcre_slope[i],    dcre_uncert[i]);
     print_value("dcr  lo ", 3, dcr_cut_lo[i],    0.0);
     print_value("dcr  hi ", 3, dcr_cut_hi[i],    0.0);
@@ -1034,27 +996,21 @@ int main(int argc, char* argv[]){
   TTreeReaderValue<int> runIn(reader, "run");
   TTreeReaderValue<int> eventnumIn(reader, "eventnum");
   TTreeReaderValue<vector<string> >  detserialIn(reader, "detserial");
-  TTreeReaderValue<vector<int> > maxtime(reader, "maxtime");
-  TTreeReaderValue<vector<int> > mintime(reader, "mintime");
-  TTreeReaderValue<vector<int> > trapmaxtime(reader, "trapmaxtime");
   TTreeReaderValue<vector<double> > baseline(reader, "baseline");
   TTreeReaderValue<vector<double> > baserms(reader, "baserms");
-  TTreeReaderValue<vector<double> > maxval(reader, "maxval");
-  TTreeReaderValue<vector<double> > minval(reader, "minval");
   TTreeReaderValue<vector<double> > t0(reader, "t0");
   TTreeReaderValue<vector<double> > t10(reader, "t10");
   TTreeReaderValue<vector<double> > t50(reader, "t50");
   TTreeReaderValue<vector<double> > t90(reader, "t90");
   TTreeReaderValue<vector<double> > times(reader, "time");
   TTreeReaderValue<vector<double> > deltat(reader, "deltat");
-  //TTreeReaderValue<vector<vector<double> > > exp_param(reader, "exp_param");
 
   // output tree setup
   int run, eventnum;
   vector<string> detserial;
   vector<int> chan;
   vector<double> baseSigma, nbaserms, timestamp, dt, T0, trise;
-  vector<double> trapECal, trapEFCal, trapEFCCal,/*trapEFRCal,*/avse, aoe, dcr;
+  vector<double> trapECal, trapEFCal, trapEFCCal, avse, aoe, dcr;
   TFile* outfile = new TFile(ofname.c_str(), "recreate");
   tdir->cd();
   TTree* outtree = new TTree("tree", "tree");
@@ -1071,7 +1027,6 @@ int main(int argc, char* argv[]){
   outtree->Branch("trapECal", &trapECal);
   outtree->Branch("trapEFCal", &trapEFCal);
   outtree->Branch("trapEFCCal", &trapEFCCal);
-  //outtree->Branch("trapEFRCal", &trapEFRCal);
   outtree->Branch("avse", &avse);
   outtree->Branch("aoe", &aoe);
   outtree->Branch("dcr", &dcr);
@@ -1097,7 +1052,6 @@ int main(int argc, char* argv[]){
     trapECal.assign(nwf, 0.0);
     trapEFCal.assign(nwf, 0.0);
     trapEFCCal.assign(nwf, 0.0);
-    //trapEFRCal.assign(nwf, 0.0);
     avse.assign(nwf, 0.0);
     aoe.assign(nwf, 0.0);
     dcr.assign(nwf, 0.0);
@@ -1120,8 +1074,6 @@ int main(int argc, char* argv[]){
 	trapEFCCal[ich] = ct1_trappick->at(ich)*ecscale[i]+ecoffset[i];
       else if(ct_method[i] == 2)
 	trapEFCCal[ich] = ct2_trappick->at(ich)*ecscale[i]+ecoffset[i];
-      //trapEFRCal[i] = trapEFCal[i] + ((trise_val[i] -
-      //                                 trise[i])) / trise_slope[i];
       double E = trapEFCCal[ich];
       if(!get_ct_decay) E = trapEFCal[ich];
       if(!use_fixedt) E = trapECal[ich];
@@ -1185,6 +1137,10 @@ int main(int argc, char* argv[]){
       hdecay[i]->Write(("hdecay_"+to_string(p.first)).c_str());
     if(hbase_energy[i])
       hbase_energy[i]->Write(("hbase_energy_"+to_string(p.first)).c_str());
+    if(hbase_deltat[i])
+      hbase_deltat[i]->Write(("hbase_deltat_"+to_string(p.first)).c_str());
+    if(hbrms_deltat[i])
+      hbrms_deltat[i]->Write(("hbrms_deltat_"+to_string(p.first)).c_str());
     if(hbrms_energy[i])
       hbrms_energy[i]->Write(("hbrms_energy_"+to_string(p.first)).c_str());
     if(hdecay_energy[i])
@@ -1247,8 +1203,6 @@ int main(int argc, char* argv[]){
     jvalue[s]["avse_p2"]    = avse_param[i][2];
     jvalue[s]["avse_j"]     = avse_param[i][3];
     jvalue[s]["aoe_min"]    = aoe_min[i];
-    //jvalue[s]["rise_t"]     = trise_val[i];
-    //jvalue[s]["rise_m"]     = trise_slope[i];
     jvalue[s]["dcre_slope"] = dcre_slope[i];
     jvalue[s]["dcr_cut_lo"] = dcr_cut_lo[i];
     jvalue[s]["dcr_cut_hi"] = dcr_cut_hi[i];
