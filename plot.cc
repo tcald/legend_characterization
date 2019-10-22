@@ -596,6 +596,7 @@ int main(int argc, char* argv[]){
   }
   delete line;
 
+  vector<TH1D*> hpsa;
   // determine the PSA efficiencies
   if(do_psa){
     int i = -1;
@@ -606,10 +607,10 @@ int main(int argc, char* argv[]){
       pair<double, double> d0(max(1525.0, dep-8*dres-50), dep-8*dres);
       pair<double, double> d1(dep-3*dres, dep+3*dres);
       pair<double, double> d2(1650.0, 1700.0);
-      double sep = 2615-2*511.;
+      double sep = 2615-511.;
       double sres = ffwhmE[i]->Eval(sep);
       pair<double, double> s0(sep-8*sres-50, sep-8*sres);
-      pair<double, double> s1(sep-3*sres, sep-3*sres);
+      pair<double, double> s1(sep-3*sres, sep+3*sres);
       pair<double, double> s2(sep+8*sres, sep+8*sres+50);
       TAxis* xa = havseE[i]->GetXaxis();
       TH1D* h0 = havseE[i]->ProjectionY("havse0_tmp",
@@ -629,8 +630,7 @@ int main(int argc, char* argv[]){
       }
       double dacc = h1->Integral(h1->GetXaxis()->FindBin(-1.0),
 				 h1->GetNbinsX());
-      dacc /= h1->Integral(0, h1->GetNbinsX());
-
+      dacc /= h1->Integral(1, h1->GetNbinsX());
       delete h0;
       delete h1;
       delete h2;
@@ -651,7 +651,7 @@ int main(int argc, char* argv[]){
       }
       double sacc = h1->Integral(h1->GetXaxis()->FindBin(-1.0),
 				 h1->GetNbinsX());
-      sacc /= h1->Integral(0, h1->GetNbinsX());
+      sacc /= h1->Integral(1, h1->GetNbinsX());
       delete h0;
       delete h1;
       delete h2;
@@ -662,13 +662,14 @@ int main(int argc, char* argv[]){
       ssavse << "DEP: " << fixed << setprecision(1) << 100*dacc << "%  "
 	     << "SEP: " << fixed << setprecision(1) << 100*sacc << "%";
       havseE[i]->SetTitle(("#font[132]{"+ssavse.str()+"}").c_str());
-      h0 = haoeE[i]->ProjectionY("haoe0_tmp",
+      xa = haoeE[i]->GetXaxis();
+      h0 = haoeE[i]->ProjectionY("haoe0_tmp0",
 				 xa->FindBin(d0.first),
 				 xa->FindBin(d0.second));
-      h1 = haoeE[i]->ProjectionY("haoe1_tmp",
+      h1 = haoeE[i]->ProjectionY("haoe1_tmp0",
 				 xa->FindBin(d1.first),
 				 xa->FindBin(d1.second));
-      h2 = haoeE[i]->ProjectionY("haoe2_tmp",
+      h2 = haoeE[i]->ProjectionY("haoe2_tmp0",
 				 xa->FindBin(d2.first),
 				 xa->FindBin(d2.second));
       for(int j=1; j<=h1->GetNbinsX(); j++){
@@ -677,19 +678,21 @@ int main(int argc, char* argv[]){
 	double b1 = h1->GetBinContent(j)-(b0+b2)*0.5*(d1.second-d1.first);
 	h1->SetBinContent(j, max(0.0, b1));
       }
-      dacc = h1->Integral(h1->GetXaxis()->FindBin(1.0),
-				 h1->GetNbinsX());
-      dacc /= h1->Integral(0, h1->GetNbinsX());
-      delete h0;
-      delete h1;
-      delete h2;
-      h0 = haoeE[i]->ProjectionY("haoe0_tmp",
+      dacc = h1->Integral(h1->GetXaxis()->FindBin(1.0), h1->GetNbinsX());
+      dacc /= h1->Integral(1, h1->GetNbinsX());
+      hpsa.push_back(h0);
+      hpsa.push_back(h1);
+      hpsa.push_back(h2);
+      //delete h0;
+      //delete h1;
+      //delete h2;
+      h0 = haoeE[i]->ProjectionY("haoe0_tmp1",
 				 xa->FindBin(s0.first),
 				 xa->FindBin(s0.second));
-      h1 = haoeE[i]->ProjectionY("haoe1_tmp",
+      h1 = haoeE[i]->ProjectionY("haoe1_tmp1",
 				 xa->FindBin(s1.first),
 				 xa->FindBin(s1.second));
-      h2 = haoeE[i]->ProjectionY("haoe2_tmp",
+      h2 = haoeE[i]->ProjectionY("haoe2_tmp1",
 				 xa->FindBin(s2.first),
 				 xa->FindBin(s2.second));
       for(int j=1; j<=h1->GetNbinsX(); j++){
@@ -698,12 +701,14 @@ int main(int argc, char* argv[]){
 	double b1 = h1->GetBinContent(j)-(b0+b2)*0.5*(s1.second-s1.first);
 	h1->SetBinContent(j, max(0.0, b1));
       }
-      sacc = h1->Integral(h1->GetXaxis()->FindBin(1.0),
-				 h1->GetNbinsX());
-      sacc /= h1->Integral(0, h1->GetNbinsX());
-      delete h0;
-      delete h1;
-      delete h2;
+      sacc = h1->Integral(h1->GetXaxis()->FindBin(1.0), h1->GetNbinsX());
+      sacc /= h1->Integral(1, h1->GetNbinsX());
+      hpsa.push_back(h0);
+      hpsa.push_back(h1);
+      hpsa.push_back(h2);
+      //delete h0;
+      //delete h1;
+      //delete h2;
       cout << "  A/E DEP acceptance: " << dacc << endl;
       cout << "  A/E SEP acceptance: " << sacc << endl;
       stringstream ssaoe;
@@ -768,6 +773,7 @@ int main(int argc, char* argv[]){
   // write histograms to output file
   TFile* outfile = new TFile(outfname.c_str(), "recreate");
   outfile->cd();
+  for(auto h : hpsa) h->Write();
   for(int i=0; i<(int)chan_map.size(); i++){
     if(hECal[i])             hECal[i]->Write();
     if(hEFCal[i])           hEFCal[i]->Write();

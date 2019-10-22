@@ -209,7 +209,7 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
 				 axis->FindBin(dep+80));
   for(int i=0; i<=(int)havse0->GetNbinsX(); i++){
     double val = havse0->GetBinContent(i);
-    val -= (havse1->GetBinContent(i)+havse2->GetBinContent(i)) * 0.5;
+    val -= (havse1->GetBinContent(i)+havse2->GetBinContent(i)) * 0.5 / 3;
     havse0->SetBinContent(i, val);
     if(i>1) havse0->SetBinContent(i, havse0->GetBinContent(i)+
 				  havse0->GetBinContent(i-1));
@@ -232,38 +232,39 @@ TGraphErrors* AvsECal(TH2D* ha, vector<double>& param, vector<double>& uncert){
   return g;
 }
 
+
 // calibrate A/E from the scaled A/E vs energy histogram
 void AoECal(TH2D* h, double& amin, double& auncert){
   const double dep = 2615. - 2*511;
   // get the A/E distribution of the DEP and sideband subtract
   TAxis* axis = h->GetXaxis();
-  TH1D* havse0 = h->ProjectionY("havse0",
-				 axis->FindBin(dep-5),
-				 axis->FindBin(dep+5));
-  TH1D* havse1 = h->ProjectionY("havse1",
-				 axis->FindBin(dep-25),
-				 axis->FindBin(dep-15));
-  TH1D* havse2 = h->ProjectionY("havse2",
-				 axis->FindBin(dep+15),
-				 axis->FindBin(dep+25));
-  for(int i=1; i<=(int)havse0->GetNbinsX(); i++){
-    double val = havse0->GetBinContent(i);
-    val -= (havse1->GetBinContent(i)+havse2->GetBinContent(i)) * 0.5;
-    havse0->SetBinContent(i, val);
-    if(i>1) havse0->SetBinContent(i, havse0->GetBinContent(i)+
-				  havse0->GetBinContent(i-1));
+  TH1D* haoe0 = h->ProjectionY("havse0",
+			       axis->FindBin(dep-5), axis->FindBin(dep+5));
+  TH1D* haoe1 = h->ProjectionY("havse1",
+			       axis->FindBin(dep-25), axis->FindBin(dep-15));
+  TH1D* haoe2 = h->ProjectionY("havse2",
+			       axis->FindBin(dep+15), axis->FindBin(dep+25));
+  for(int i=1; i<=(int)haoe0->GetNbinsX(); i++){
+    double val = haoe0->GetBinContent(i);
+    val -= (haoe1->GetBinContent(i)+haoe2->GetBinContent(i)) * 0.5;
+    haoe0->SetBinContent(i, val);
+    if(i>1) haoe0->SetBinContent(i, haoe0->GetBinContent(i)+
+				  haoe0->GetBinContent(i-1));
   }
-  double aint = havse0->GetMaximum();
-  for(int i=2; i<=(int)havse0->GetNbinsX(); i++)
-    if(havse0->GetBinContent(i)/aint > 0.1){
-      double x0 = havse0->GetBinCenter(i-1);
-      double y0 = havse0->GetBinContent(i-1)/aint;
-      double x1 = havse0->GetBinCenter(i);
-      double y1 = havse0->GetBinContent(i)/aint;
+  double aint = haoe0->GetMaximum();
+  for(int i=2; i<=(int)haoe0->GetNbinsX(); i++)
+    if(haoe0->GetBinContent(i)/aint > 0.1){
+      double x0 = haoe0->GetBinCenter(i-1);
+      double y0 = haoe0->GetBinContent(i-1)/aint;
+      double x1 = haoe0->GetBinCenter(i);
+      double y1 = haoe0->GetBinContent(i)/aint;
       amin = x0 + (x1-x0)*(0.1-y0)/(y1-y0);
-      auncert = havse0->GetBinWidth(i)*0.5;
+      auncert = haoe0->GetBinWidth(i)*0.5;
       break;
     }
+  delete haoe0;
+  delete haoe1;
+  delete haoe2;
 }
 
 // calibrate the DCR cut from the corrected DCR vs energy
