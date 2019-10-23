@@ -543,8 +543,11 @@ int main(int argc, char* argv[]){
 	  if(iev < nentries-1) min_proc = min(min_proc, bthread[i]);
 	  else{
 	    cout << "waiting for thread " << i << " to finish..." << endl;
+	    TStopwatch wtmp;
+	    wtmp.Start();
 	    threads[i].wait();
 	    sthread[i] = COMPLETE;
+	    times[5] -= wtmp.RealTime();
 	  }
 	}
       }
