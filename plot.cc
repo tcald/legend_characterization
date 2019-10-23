@@ -596,7 +596,6 @@ int main(int argc, char* argv[]){
   }
   delete line;
 
-  vector<TH1D*> hpsa;
   // determine the PSA efficiencies
   if(do_psa){
     int i = -1;
@@ -680,12 +679,9 @@ int main(int argc, char* argv[]){
       }
       dacc = h1->Integral(h1->GetXaxis()->FindBin(1.0), h1->GetNbinsX());
       dacc /= h1->Integral(1, h1->GetNbinsX());
-      hpsa.push_back(h0);
-      hpsa.push_back(h1);
-      hpsa.push_back(h2);
-      //delete h0;
-      //delete h1;
-      //delete h2;
+      delete h0;
+      delete h1;
+      delete h2;
       h0 = haoeE[i]->ProjectionY("haoe0_tmp1",
 				 xa->FindBin(s0.first),
 				 xa->FindBin(s0.second));
@@ -703,12 +699,9 @@ int main(int argc, char* argv[]){
       }
       sacc = h1->Integral(h1->GetXaxis()->FindBin(1.0), h1->GetNbinsX());
       sacc /= h1->Integral(1, h1->GetNbinsX());
-      hpsa.push_back(h0);
-      hpsa.push_back(h1);
-      hpsa.push_back(h2);
-      //delete h0;
-      //delete h1;
-      //delete h2;
+      delete h0;
+      delete h1;
+      delete h2;
       cout << "  A/E DEP acceptance: " << dacc << endl;
       cout << "  A/E SEP acceptance: " << sacc << endl;
       stringstream ssaoe;
@@ -773,7 +766,6 @@ int main(int argc, char* argv[]){
   // write histograms to output file
   TFile* outfile = new TFile(outfname.c_str(), "recreate");
   outfile->cd();
-  for(auto h : hpsa) h->Write();
   for(int i=0; i<(int)chan_map.size(); i++){
     if(hECal[i])             hECal[i]->Write();
     if(hEFCal[i])           hEFCal[i]->Write();

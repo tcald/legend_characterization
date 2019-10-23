@@ -285,6 +285,7 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
       wf->SetWFParam(iwf, "ct2_trappick",(float)(v[pickoff]+
 						 wf->GetParam("ct_frac")*cti));
     }
+    pickoff = max(0, min(pickoff, (int) v.size()));
     // vary the charge trapping integration time for optimization
     if(wf->GetParam("nct_steps") > 0.0)
       for(int ict=0; ict<(int)wf->GetParam("nct_steps"); ict++){
