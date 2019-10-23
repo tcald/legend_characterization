@@ -80,7 +80,7 @@ std::pair<std::vector<float>,
     z0 = make_zip_iterator(make_tuple(x.begin(), t.begin()));
   zip_iterator<tuple<device_vector<float>::iterator,
 		     device_vector<int>::iterator> > 
-    z1 = make_zip_iterator(make_tuple(y.begin(), s.end()));
+    z1 = make_zip_iterator(make_tuple(y.begin(), s.begin()));
   reduce_by_key(k.begin(), k.end(), z0, make_discard_iterator(), z1,
 		equal_to<int>(), maximum<tuple<float, int> >());
   // fixme: the lines below aren't actually accessing the reduced values
