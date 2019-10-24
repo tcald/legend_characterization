@@ -34,7 +34,7 @@ void print_value(string name, int prec, double val, double uncert){
 }
 
 // do a two point energy calibration to get the initial scale
-void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
+void Th_scale2(TH1D* h, double& offset, double& scale, int peak=0){
   // find the bin below which most of the spectrum lies
   int bin = 0;
   if(peak > 0) bin = h->GetXaxis()->FindBin(peak);
@@ -113,6 +113,83 @@ void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
   double val0 = f0->GetParameter(2);
   scale = (2615-583) / (val1-val0);
   offset = 2615 - scale*val1;
+}
+
+void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
+  if(peak != 0) Th_scale2(h, offset, scale, peak);
+  int minbin;
+  double integral = h->GetBinContent(200);
+  for(minbin=200; minbin<=h->GetNbinsX(); minbin++){
+    integral += h->GetBinContent(minbin);
+    if(integral > 100) break;
+  }
+  int maxbin;
+  integral = 0.0;
+  for(maxbin=h->GetNbinsX(); maxbin>=1; maxbin--){
+    integral += h->GetBinContent(maxbin);
+    if(integral > 100) break;
+  }
+  offset = 0.0;
+  scale  = 0.0;
+  int imax = -1;
+  int jmax = -1;
+  double maxval = 0.0;
+  for(int i=minbin; i<maxbin; i++){
+    double x0 = h->GetBinCenter(i);
+    int    n0 = x0/583 * 1/h->GetBinWidth(i);
+    double s0 = h->Integral(i-2*n0, i+2*n0);
+    double b0 = h->Integral(i-8*n0, i-6*n0)+h->Integral(i+6*n0, i+8*n0);
+    if(s0 == 0.0 || b0 == 0.0) continue;
+    double r0 = (s0-b0)/sqrt(b0);
+    if(r0 < 0.0) continue;
+    for(int j=4*i+1; j<=min(maxbin, 8*i); j++){
+      double x1 = h->GetBinCenter(j);
+      int    n1 = x1/2615 * 3/h->GetBinWidth(j);
+      double s1 = h->Integral(j-2*n1, j+2*n1);
+      double b1 = h->Integral(j-8*n1, j-6*n1)+h->Integral(j+6*n1, j+8*n1);
+      if(s1 == 0.0 || b1 == 0.0) continue;
+      double r1 = (s1-b1)/sqrt(b1);
+      if(r1 < 0.0) continue;
+      if(r0+r1 > maxval){
+	maxval = r0+r1;
+	scale = (2615-583)/(x1-x0);
+	offset = 2615-scale*x1;
+	imax = i;
+	jmax = j;
+      }
+    }
+  }
+  if(imax < 0 || jmax < 0) return;
+  int    n0 = h->GetBinCenter(imax)/583 + 1/h->GetBinWidth(imax);
+  double s0 = h->GetBinContent(imax);
+  double b0 = (h->Integral(imax-8*n0, imax-6*n0) +
+	       h->Integral(imax+6*n0, imax+8*n0)) / (4*n0);
+  int    n1 = h->GetBinCenter(jmax)/2615 * 3/h->GetBinWidth(imax);
+  double s1 = h->GetBinContent(jmax);
+  double b1 = (h->Integral(jmax-8*n1, jmax-6*n1) +
+	       h->Integral(jmax+6*n1, jmax+8*n1)) / (4*n1);
+  TF1* f0 = new TF1("f0", "[0]+gaus(1)", 
+		    h->GetXaxis()->GetBinLowEdge(imax-2*n0),
+		    h->GetXaxis()->GetBinUpEdge(imax+2*n0));
+  f0->FixParameter(0, b0);
+  f0->SetParameter(1, s0 - b0);
+  f0->SetParameter(2, h->GetBinCenter(imax));
+  f0->SetParameter(3, 1.0/scale);
+  f0->SetParLimits(2, f0->GetXmin(), f0->GetXmax());
+  f0->SetParLimits(3, f0->GetParameter(3)/4, f0->GetParameter(3)*4);
+  h->Fit(f0, "QMR+");
+  TF1* f1 = new TF1("f1", "[0]+gaus(1)",
+		    h->GetXaxis()->GetBinLowEdge(jmax-2*n1),
+		    h->GetXaxis()->GetBinUpEdge(jmax+2*n1));
+  f1->FixParameter(0, b1);
+  f1->SetParameter(1, s1 - b1);
+  f1->SetParameter(2, h->GetBinCenter(jmax));
+  f1->SetParameter(3, 3.0/scale);
+  f1->SetParLimits(2, f1->GetXmin(), f1->GetXmax());
+  f1->SetParLimits(3, f1->GetParameter(3)/4, f1->GetParameter(3)*4);
+  h->Fit(f1, "QMR+");
+  scale  = (2615-583)/(f1->GetParameter(2)-f0->GetParameter(2));
+  offset = 2615-scale*f1->GetParameter(2);
 }
 
 // get a rough estimate of the resolution of the 2615 keV peak
