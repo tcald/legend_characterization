@@ -258,9 +258,12 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
     // integral used in David's "2nd" charge trapping method
     v = twfp.GetVectorData();
     int coff = (int) (wf->GetParam("ct_offset") / sampling);
-    double cti = accumulate(v.begin()+(int)(t0+coff),
-			    v.begin()+(int)(t0+coff*2), 0.0);
-    cti -= accumulate(v.begin()+(int)(t0), v.begin()+(int)(t0+coff), 0.0);
+    double cti = 0.0;
+    if(t0+coff*2 < (int) v.size()){
+      cti = accumulate(v.begin()+(int)(t0+coff),
+		       v.begin()+(int)(t0+coff*2), 0.0);
+      cti -= accumulate(v.begin()+(int)(t0), v.begin()+(int)(t0+coff), 0.0);
+    }
     wf->SetWFParam(iwf, "ct_integral", cti);
     // dcr
     int ndcr = (int) wf->GetParam("ndcr_samples");
