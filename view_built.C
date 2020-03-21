@@ -31,8 +31,6 @@ void view_built(string fname, int nwf=300, int schan=0, int nchan=1,
       minval = std::min(vh[ich]->GetMinimum(), minval);
       iwf ++;
     }
-    if(maxval-minval < 1650 || maxval-minval > 1670){ iwf--; continue;}
-    printf("%f\n", maxval-minval);
     vh[0]->GetYaxis()->SetRangeUser(minval-0.05*(maxval-minval),
     				    maxval+0.05*(maxval-minval));
     for(int ich=0; ich<(int)event->GetNWaveforms(); ich++){

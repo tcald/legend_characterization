@@ -3,7 +3,7 @@
 #ifdef __CUDA
 #include "gutils.hh"
 #endif
-#include <MJTRun.hh>
+#include <MGTRun.hh>
 #include <MGTEvent.hh>
 #include <MGTWaveform.hh>
 #include <TFile.h>
@@ -398,7 +398,7 @@ int main(int argc, char* argv[]){
     haoe_energyf[i] = (TH2D*) haoe_energy[i]->Clone(("haoe"+s).c_str());
     hdcr_energyf[i] = (TH2D*) hdcr_energy[i]->Clone(("hdcr"+s).c_str());
     hrise_energyf[i] =(TH2D*) hrise_energy[i]->Clone(("hrise"+s).c_str());
-    s = "_energyc" + to_string(ch);
+    s = "_energyc_" + to_string(ch);
     hamp_energyc[i] = (TH2D*) hamp_energy[i]->Clone(("hamp"+s).c_str());
     haoe_energyc[i] = (TH2D*) haoe_energy[i]->Clone(("haoe"+s).c_str());
     hdcr_energyc[i] = (TH2D*) hdcr_energy[i]->Clone(("hdcr"+s).c_str());
@@ -415,7 +415,7 @@ int main(int argc, char* argv[]){
   int nentries = (int) tree.GetEntries();
   if(max_wf > 0) nentries = std::min(nentries, max_wf);
   TTreeReader reader(&tree);
-  TTreeReaderValue<MJTRun> mjtrun(reader, "run");
+  TTreeReaderValue<MGTRun> mjtrun(reader, "run");
   TTreeReaderValue<MGTEvent> event(reader, "event");
 
   // start reading/processing events
@@ -433,6 +433,7 @@ int main(int argc, char* argv[]){
   vector<bool> rebin_base(chan_map.size(), false);
   bool read_events = true;
   bool processing_complete = false;
+  map<int, int> ev_offset;
   while(!processing_complete){
     if(read_events && iev < nentries-1){
       reader.Next();
@@ -446,6 +447,7 @@ int main(int argc, char* argv[]){
       if(run != lrun){
 	lrun = run;
 	event_count = -1;
+	ev_offset[run] = iev;
       }
       event_count ++;
       TClonesArray* wfs = event->GetWaveforms();
@@ -576,6 +578,7 @@ int main(int argc, char* argv[]){
       vector<int> chindex(chan_map.size(), 0);
       for(int jev=0; jev<(int)wfcount[mw_index].size(); jev++){
 	int nwf = wfcount[mw_index][jev];
+	if(nwf > 1) cout << nwf << endl;
 	// clear previous values
 	channel.assign(nwf, 0);
 	detserial.assign(nwf, "");
@@ -616,10 +619,12 @@ int main(int argc, char* argv[]){
 	    else times[6] += mwf[ich][ith]->GetParam("proc_time");
 	  }
 	  int ev = (int) mwf[ich][ith]->GetWFParam(chindex[ich], "eventnum");
+	  ev += ev_offset[mwf[ich][ith]->GetWFParam(chindex[ich], "run")];
 	  while(chindex[ich]<mwf[ich][ith]->GetNWaveforms()){
 	    if(ev >= lprocess + jev) break;
 	    chindex[ich] ++;
 	    ev = (int) mwf[ich][ith]->GetWFParam(chindex[ich], "eventnum");
+	    ev += ev_offset[mwf[ich][ith]->GetWFParam(chindex[ich], "run")];
 	  }
 	  if(chindex[ich] >= mwf[ich][ith]->GetNWaveforms()) continue;
 	  if(ev != lprocess+jev) continue;

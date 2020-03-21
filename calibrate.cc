@@ -344,6 +344,61 @@ void AoECal(TH2D* h, double& amin, double& auncert){
   delete haoe2;
 }
 
+// get the mode of DCR as a function of energy
+TGraphErrors* DCRProfile(TH2D* hd, vector<double>& param, vector<double>& uncert){
+  const vector<double> start({200,310,400,530,600,700,800,900,1050,1180,
+	1250,1300,1465,1550,1680,1750,1800,1900,2000,2150,2220,2300});
+  const double w = 25.0;
+  vector<double> x;
+  vector<double> y;
+  vector<double> ex;
+  vector<double> ey;
+  for(int i=0; i<(int)start.size(); i++){
+    int bin0 = hd->GetXaxis()->FindBin(start[i]);
+    int bin1 = hd->GetXaxis()->FindBin(start[i]+w);
+    TH1D* h = hd->ProjectionY("htmp", bin0, bin1);
+    if(h->Integral() == 0.0){
+      delete h;
+      continue;
+    }
+    double mval = h->GetXaxis()->GetBinCenter(h->GetMaximumBin());
+    double bwid = h->GetXaxis()->GetBinWidth(1);
+    TF1* f = new TF1("fdcr_gaus_tmp", "gaus(0)", mval-3*bwid, mval+3*bwid);
+    f->SetParameters(h->GetMaximum(), mval, bwid);
+    h->Fit(f, "QAFR");
+    x.push_back(start[i]+0.5*w);
+    ex.push_back(w/5);
+    y.push_back(f->GetParameter(1));
+    ey.push_back(f->GetParError(1));
+    delete h;
+    delete f;
+  }
+  if(x.size() == 0){
+    cout << "DCR profile failed due to empty histogram" << endl;
+    return NULL;
+  }
+  // linear fit to the DCR profile
+  TGraphErrors* g = new TGraphErrors(x.size(), &x.front(),  &y.front(),
+				     &ex.front(), &ey.front());
+  g->SetName(("gdcr_"+string(hd->GetName())).c_str());
+  g->SetTitle("");
+  g->GetHistogram()->SetXTitle("Energy (keV)");
+  g->GetHistogram()->SetYTitle("DCR Slope");
+  g->SetMarkerColor(4);
+  g->SetLineColor(4);
+  TF1* f = new TF1(("fdcr_"+string(hd->GetName())).c_str(),
+		   "[0]+[1]*x",0.0, 20000.0);
+  f->SetParameters(0.0, -0.005);
+  f->SetParLimits(2, -0.1, 0.1);
+  g->Fit(f, "QAF+", "", x.front(), x.back());
+  for(int i=0; i<2; i++){
+    param[i] = f->GetParameter(i);
+    uncert[i] = f->GetParError(i);
+  }
+  delete f;
+  return g;
+}
+
 // calibrate the DCR cut from the corrected DCR vs energy
 void DCRCal(TH2D* h, double rejlo, double rejhi, double& cutlo, double& cuthi){
   TH1D* hp = h->ProjectionY("hdcr_proj",
@@ -397,7 +452,7 @@ int main(int argc, char* argv[]){
     {"jsonfile",   required_argument, NULL, 'J'},
     {"fixedtime",        no_argument, NULL, 'f'},
     {"thlocation", required_argument, NULL, 't'},
-    {"chargetrap", no_argument, NULL, 'C'}
+    {"chargetrap", no_argument,       NULL, 'C'}
   };
   int opt = getopt_long(argc, argv, "hc:i:o:s:j:J:ft:C", opts, NULL);
   while(opt != -1){
@@ -412,7 +467,7 @@ int main(int argc, char* argv[]){
       cout << "  -J name of output json config file"   << endl;
       cout << "  -f do not use the fixed time pickoff" << endl;
       cout << "  -C use charge trapping correction"    << endl;
-      cout << "  -t channel,adc where adc is the estimated "
+      cout << "  -t channel,adc where adc is the estimated"
 	   << " 2615 keV peak loaction"                << endl;
       return 0;
     case 'c': chan_cal.push_back(atoi(optarg));  break;
@@ -613,6 +668,7 @@ int main(int argc, char* argv[]){
   vector<double> dcre_uncert(chan_map.size(), 0.0);
   vector<double> dcr_cut_lo(chan_map.size(), 0.0);
   vector<double> dcr_cut_hi(chan_map.size(), 0.0);
+  vector<TGraphErrors*> gdcr(chan_map.size(), NULL);
 
   // determine the optimal charge trapping time constant
   const int nct_steps = 100;
@@ -650,10 +706,10 @@ int main(int argc, char* argv[]){
 				   henergyc1[i]->GetXaxis()->GetXmax());
 	    }
 	    for(int k=0; k<nct_steps; k++){
-	      dfrac[j][k] = (1 + (99*k/((double)nct_steps))) * 1e-8;
+	      dfrac[j][k] = pow(10, -10 + k*6./nct_steps);
 	      string n = "hct2_" + to_string(j) + "_" + to_string(k);
 	      hE2[j][k] = new TH1D(n.c_str(), "",
-				   henergyc1[i]->GetXaxis()->GetNbins()*4,
+				   henergyc1[i]->GetXaxis()->GetNbins(),
 				   henergyc1[i]->GetXaxis()->GetXmin(),
 				   henergyc1[i]->GetXaxis()->GetXmax());
 	    }
@@ -698,7 +754,7 @@ int main(int argc, char* argv[]){
 	TGraphErrors* g1 = new TGraphErrors(res1.size(), &ct[i].front(),
 					    &res1.front(), &ct_uncert.front(),
 					    &res1_uncert.front());
-	g1->SetName(("gresct1_"+to_string(i)).c_str());
+	g1->SetName(("gresct1_"+to_string(ch)).c_str());
 	g1->SetTitle("");
 	g1->GetHistogram()->SetXTitle("#tau (ns)");
 	g1->GetHistogram()->SetYTitle("#sigma (ADC)");
@@ -739,7 +795,7 @@ int main(int argc, char* argv[]){
 					    &res2.front(),
 					    &dfrac_uncert.front(),
 					    &res2_uncert.front());
-	g2->SetName(("gresct2_"+to_string(i)).c_str());
+	g2->SetName(("gresct2_"+to_string(ch)).c_str());
 	g2->SetTitle("");
 	g2->GetHistogram()->SetXTitle("D");
 	g2->GetHistogram()->SetYTitle("#sigma (ADC)");
@@ -905,16 +961,12 @@ int main(int argc, char* argv[]){
 	delete fpz;
       }
       // dcr slope correction
-      TProfile* dcr_prof = hdcr_energy[i]->ProfileX(("hdcr_prof_" +
-						     to_string(i)).c_str());
-      TF1* fdcr = new TF1("fdcr", "[0]+[1]*x",
-			  0.0, dcr_prof->GetXaxis()->GetXmax());
-      fdcr->FixParameter(0, 0.0);
-      fdcr->SetParameter(1, -1.0e5);
-      dcr_prof->Fit(fdcr, "QFR+");
-      dcre_slope[i]   = fdcr->GetParameter(1);
-      dcre_uncert[i] = fdcr->GetParError(1);
-    }
+      vector<double> param(2, 0.0);
+      vector<double> uncert(2, 0.0);
+      gdcr[i] = DCRProfile(hdcr_energy[i], param, uncert);
+      dcre_slope[i] = param[1];
+      dcre_uncert[i] = uncert[1];
+    }	
   }
 
   // calibrate AvsE, A/E,  and DCR
@@ -1179,12 +1231,16 @@ int main(int argc, char* argv[]){
       avse[ich] /= avse_param[i][3];
       aoe[ich] -= aoe_min[i] - 1;
       // fixme - this places the cuts at -1 to 1, probably not what we want
-      if(get_ct_decay)
-	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*ct_trappick->at(ich);
+      if(get_ct_decay){
+	if(ct_method[i] == 1)
+	  dcr[ich] = dcrslope->at(ich)-dcre_slope[i]*ct1_trappick->at(ich);
+	else
+	  dcr[ich] = dcrslope->at(ich)-dcre_slope[i]*ct2_trappick->at(ich);
+      }
       else if(use_fixedt)
-	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*trappick->at(ich);
+	dcr[ich] = dcrslope->at(ich)-dcre_slope[i]*trappick->at(ich);
       else
-	dcr[ich] = dcrslope->at(ich);//-dcre_slope[i]*trapmax->at(ich);
+	dcr[ich] = dcrslope->at(ich)-dcre_slope[i]*trapmax->at(ich);
       //dcr[ich] = dcr[ich]*2/(dcr_cut_hi[i]-dcr_cut_lo[i]);
       //dcr[ich] += (dcr_cut_lo[i]+dcr_cut_hi[i])/
       //(dcr_cut_lo[i]-dcr_cut_hi[i]);
@@ -1246,6 +1302,7 @@ int main(int argc, char* argv[]){
     if(henergy[i]) henergy[i]->Write();
     if(hecal[i]) hecal[i]->Write();
     if(gavse[i]) gavse[i]->Write();
+    if(gdcr[i])  gdcr[i]->Write();
     if(gresct1[i]) gresct1[i]->Write();
     if(gresct2[i]) gresct2[i]->Write();
   }
