@@ -266,12 +266,15 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
     }
     wf->SetWFParam(iwf, "ct_integral", cti);
     // dcr
-    int ndcr = (int) wf->GetParam("ndcr_samples");
-    int d0 = min((int)t99, (int)v.size()-2*ndcr-1);
-    double ds = accumulate(v.end()-ndcr-4, v.end()-4, 0.0);
-    ds -= accumulate(v.begin()+d0, v.begin()+d0+ndcr, 0.0);
-    ds /= v.size() - d0 - ndcr;
-    wf->SetWFParam(iwf, "dcrslope", (float) ds);
+    if(!isnan(t99)){
+      int ndcr = (int) wf->GetParam("ndcr_samples");
+      int d0 = min((int)t99, (int)v.size()-2*ndcr-1);
+      double ds = accumulate(v.end()-ndcr-4, v.end()-4, 0.0);
+      ds -= accumulate(v.begin()+d0, v.begin()+d0+ndcr, 0.0);
+      ds /= v.size() - d0 - ndcr;
+      wf->SetWFParam(iwf, "dcrslope", (float) ds);
+    }
+    else wf->SetWFParam(iwf, "dcrslope", 0.0);
     // fixed time pickoff
     v = twfs.GetVectorData();
     int pickoff = (int)(t0+(wf->GetParam("slow_rise")+0.9*
@@ -315,11 +318,11 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
   return mwf;
 }
 
-TH1D* GetWFHist(MultiWaveform* w, int i, string n){
-  MGTWaveform* wf = w->GetWaveform(i);
+TH1D* GetWFHist(MultiWaveform* w, int j, string n){
+  MGTWaveform* wf = w->GetWaveform(j);
   vector<double> v = wf->GetVectorData();
-  TH1D* h = new TH1D(n.c_str(), "", v.size(), w->GetWFOffset(i),
-		     w->GetWFOffset(i)+w->GetParam("sampling")*v.size());
+  TH1D* h = new TH1D(n.c_str(), "", v.size(), w->GetWFOffset(j),
+		     w->GetWFOffset(j)+w->GetParam("sampling")*v.size());
   h->SetXTitle("Time (ns)");
   h->SetYTitle("ADC");
   for(unsigned i=0; i<v.size(); i++) h->SetBinContent(i+1, v[i]);

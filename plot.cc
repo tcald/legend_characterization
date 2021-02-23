@@ -84,7 +84,7 @@ int main(int argc, char* argv[]){
     {"writedir", required_argument, NULL, 'w'},
     {"jsonfile", required_argument, NULL, 'j'}
   };
-  int opt = getopt_long(argc, argv, "hi:o:c:w:j:", opts, NULL);
+  int opt = getopt_long(argc, argv, "hi:o:c:s:w:j:", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
@@ -128,7 +128,7 @@ int main(int argc, char* argv[]){
     }
     default: return 1;
     }
-    opt = getopt_long(argc, argv, "hi:o:c:w:j:", opts, NULL);
+    opt = getopt_long(argc, argv, "hi:o:c:s:w:j:", opts, NULL);
   }
   assert(infname.size() != 0 && outfname != "");
   if(peaks.size() == 0){
@@ -209,7 +209,7 @@ int main(int argc, char* argv[]){
     haoeE.push_back((TH2D*) haoeEt->Clone(("haoeE_"+sch).c_str()));
     vector<TH1D*> vh;
     for(int i=0; i<(int)peaks.size(); i++)
-      vh.push_back(new TH1D(("hEFCal_"+to_string((int)peaks[i])).c_str(), "",
+      vh.push_back(new TH1D(("hEFCal_"+sch+"_"+to_string((int)peaks[i])).c_str(), "",
 			    8*((int)(ranges[i].second-ranges[i].first)),
 			    ranges[i].first, ranges[i].second));
     hEpeak.push_back(vh);
@@ -245,50 +245,53 @@ int main(int argc, char* argv[]){
   vector<string> det_serial(chan_map.size());
   while(reader.Next())
     for(int ich=0; ich<(int)channel->size(); ich++){
-      if(all_chan && chan_map.find(channel->at(ich)) == chan_map.end()){
-	int i = (int) chan_map.size();
-	chan_map[channel->at(ich)] = i;
-	det_serial.resize(chan_map.size());
-	string s = to_string(channel->at(ich));
-	hECal.push_back((TH1D*) hE->Clone(("hECal_"+s).c_str()));
-	hEFCal.push_back((TH1D*) hE->Clone(("hEFCal_"+s).c_str()));
-	hEFCCal.push_back((TH1D*) hE->Clone(("heFCCal_"+s).c_str()));
-	hEFCal_avse.push_back((TH1D*) hE->Clone(("hEFCal_avse_"+s).c_str()));
-	hEFCal_aoe.push_back((TH1D*) hE->Clone(("hEFCal_aoe_"+s).c_str()));
-	hdcr2615.push_back((TH1D*) hdcr->Clone(("hdcr2615_"+s).c_str()));
-	havse2615.push_back((TH1D*)havse->Clone(("havse2615_"+s).c_str()));
-	haoe2615.push_back((TH1D*) haoe->Clone(("haoe2615_"+s).c_str()));
-	hdcrE.push_back((TH2D*) hdcrEt->Clone(("hdcrE_"+s).c_str()));
-	havseE.push_back((TH2D*) havseEt->Clone(("havseE_"+s).c_str()));
-	haoeE.push_back((TH2D*) haoeEt->Clone(("haoeE_"+s).c_str()));
-	vector<TH1D*> vh;
-	for(int j=0; j<(int)peaks.size(); j++)
-	  vh.push_back(new TH1D(("hEFCal_"+to_string((int)peaks[j])).c_str(),
-				"",8*((int)(ranges[j].second-ranges[j].first)),
-				ranges[j].first, ranges[j].second));
-	hEpeak.push_back(vh);
+      if(all_chan){
+	if(chan_map.find(channel->at(ich)) == chan_map.end()){
+	  int i = (int) chan_map.size();
+	  chan_map[channel->at(ich)] = i;
+	  det_serial.resize(chan_map.size());
+	  string s = to_string(channel->at(ich));
+	  hECal.push_back((TH1D*) hE->Clone(("hECal_"+s).c_str()));
+	  hEFCal.push_back((TH1D*) hE->Clone(("hEFCal_"+s).c_str()));
+	  hEFCCal.push_back((TH1D*) hE->Clone(("heFCCal_"+s).c_str()));
+	  hEFCal_avse.push_back((TH1D*) hE->Clone(("hEFCal_avse_"+s).c_str()));
+	  hEFCal_aoe.push_back((TH1D*) hE->Clone(("hEFCal_aoe_"+s).c_str()));
+	  hdcr2615.push_back((TH1D*) hdcr->Clone(("hdcr2615_"+s).c_str()));
+	  havse2615.push_back((TH1D*)havse->Clone(("havse2615_"+s).c_str()));
+	  haoe2615.push_back((TH1D*) haoe->Clone(("haoe2615_"+s).c_str()));
+	  hdcrE.push_back((TH2D*) hdcrEt->Clone(("hdcrE_"+s).c_str()));
+	  havseE.push_back((TH2D*) havseEt->Clone(("havseE_"+s).c_str()));
+	  haoeE.push_back((TH2D*) haoeEt->Clone(("haoeE_"+s).c_str()));
+	  vector<TH1D*> vh;
+	  for(int j=0; j<(int)peaks.size(); j++)
+	    vh.push_back(new TH1D(("hEFCal_"+s+"_"+to_string((int)peaks[j])).c_str(),
+				  "",8*((int)(ranges[j].second-ranges[j].first)),
+				  ranges[j].first, ranges[j].second));
+	  hEpeak.push_back(vh);
+	}
       }
+      if(chan_map.find(channel->at(ich)) == chan_map.end()) continue;
       int i = chan_map[channel->at(ich)];
       if(find(det_serial.begin(), det_serial.end(), detserial->at(ich)) ==
 	 det_serial.end())
 	det_serial[i] = detserial->at(ich);
-      if(abs(baseSigma->at(ich)) > 5) continue;
-      if(abs(nbaserms->at(ich)) > 5) continue;
-      hdcrE[i]->Fill(trapEFCal->at(ich), dcr->at(ich));
+      //if(abs(baseSigma->at(ich)) > 5) continue;
+      //if(abs(nbaserms->at(ich)) > 5) continue;
+      hdcrE[i]->Fill(trapEFCCal->at(ich), dcr->at(ich));
       //if(dcr->at(ich)<-1 || dcr->at(ich)>1) continue;
       hECal[i]->Fill(trapECal->at(ich));
       hEFCal[i]->Fill(trapEFCal->at(ich));
       hEFCCal[i]->Fill(trapEFCCal->at(ich));
-      for(auto const& h : hEpeak[i]) h->Fill(trapEFCal->at(ich));
-      if(trapEFCal->at(ich) > 2610 && trapEFCal->at(ich) < 2620){
+      for(auto const& h : hEpeak[i]) h->Fill(trapEFCCal->at(ich));
+      if(trapEFCCal->at(ich) > 2610 && trapEFCCal->at(ich) < 2620){
 	havse2615[i]->Fill(avse->at(ich));
 	haoe2615[i]->Fill(aoe->at(ich));
 	hdcr2615[i]->Fill(dcr->at(ich));
       }
-      havseE[i]->Fill(trapEFCal->at(ich), avse->at(ich));
-      haoeE[i]->Fill(trapEFCal->at(ich), aoe->at(ich));
-      if(avse->at(ich) >= -1) hEFCal_avse[i]->Fill(trapEFCal->at(ich));
-      if(aoe->at(ich) >= 1) hEFCal_aoe[i]->Fill(trapEFCal->at(ich));
+      havseE[i]->Fill(trapEFCCal->at(ich), avse->at(ich));
+      haoeE[i]->Fill(trapEFCCal->at(ich), aoe->at(ich));
+      if(avse->at(ich) >= -1) hEFCal_avse[i]->Fill(trapEFCCal->at(ich));
+      if(aoe->at(ich) >= 1) hEFCal_aoe[i]->Fill(trapEFCCal->at(ich));
     }
 
   // clean up template histograms
@@ -382,6 +385,11 @@ int main(int argc, char* argv[]){
       vf.push_back(f);
       peak->GetFWHM(detFWHM[i][j], detFWHMuncert[i][j]);
       peak->GetCentroid(detCent[i][j], detCentUncert[i][j]);
+      int chan = -1;
+      for(auto const& p : chan_map)
+	if(p.second == i){ chan = p.first; break; }
+      if(j == (int)detFWHM[i].size()-1)
+	cout << i << " " << chan << " " << detFWHM[i][j] << endl;
       delete peak;
     }
     fpeak.push_back(vf);

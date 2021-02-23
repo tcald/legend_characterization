@@ -12,6 +12,7 @@
 #include <TCanvas.h>
 #include <TROOT.h>
 #include <TStyle.h>
+#include <TObjString.h>
 #include <json/json.h>
 #include <json/value.h>
 #include <json/reader.h>
@@ -33,11 +34,17 @@ void print_value(string name, int prec, double val, double uncert){
        << "+/-" << setprecision(prec) << uncert << endl;
 }
 
+int GetBin(TH1D* h, double val){
+  double n = val - h->GetXaxis()->GetBinLowEdge(1);
+  n /= h->GetXaxis()->GetBinWidth(1);
+  return max(0, min(h->GetNbinsX()+1, 1+(int)n));
+}
+
 // do a two point energy calibration to get the initial scale
 void Th_scale2(TH1D* h, double& offset, double& scale, int peak=0){
   // find the bin below which most of the spectrum lies
   int bin = 0;
-  if(peak > 0) bin = h->GetXaxis()->FindBin(peak);
+  if(peak > 0) bin = GetBin(h, peak);
   else{
     for(int i=h->GetNbinsX(); i>200; i--){
       double c1 = h->Integral(i-199, i-100);
@@ -62,8 +69,8 @@ void Th_scale2(TH1D* h, double& offset, double& scale, int peak=0){
   int bin1 = 0;
   double mval = 0.0;
   if(peak > 0){
-    int b0 = h->GetXaxis()->FindBin(0.9*peak);
-    int b1 = h->GetXaxis()->FindBin(1.1*peak);
+    int b0 = GetBin(h, 0.9*peak);
+    int b1 = GetBin(h, 1.1*peak);
     for(int i=b0; i<=b1; i++)
       if(h->GetBinContent(i) > mval){
 	mval = h->GetBinContent(i);
@@ -116,7 +123,10 @@ void Th_scale2(TH1D* h, double& offset, double& scale, int peak=0){
 }
 
 void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
-  if(peak != 0) Th_scale2(h, offset, scale, peak);
+  if(peak != 0){
+    Th_scale2(h, offset, scale, peak);
+    return;
+  }
   int minbin;
   double integral = h->GetBinContent(200);
   for(minbin=200; minbin<=h->GetNbinsX(); minbin++){
@@ -200,12 +210,12 @@ pair<double, double> GetThRes(TH1D* h, pair<double, double> pr,
   double e1 = 0.0;
   if(pos == 0.0) Th_scale(h, e0, e1);
   else Th_scale(h, e0, e1, pos);
-  int b0 = (int) h->GetXaxis()->FindBin((sb0.first-e0)/e1);
-  int b1 = (int) h->GetXaxis()->FindBin((sb0.second-e0)/e1);
-  int b2 = (int) h->GetXaxis()->FindBin((pr.first-e0)/e1);
-  int b3 = (int) h->GetXaxis()->FindBin((pr.second-e0)/e1);
-  int b4 = (int) h->GetXaxis()->FindBin((sb1.first-e0)/e1);
-  int b5 = (int) h->GetXaxis()->FindBin((sb1.second-e0)/e1);
+  int b0 = GetBin(h, (sb0.first-e0)/e1);
+  int b1 = GetBin(h, (sb0.second-e0)/e1);
+  int b2 = GetBin(h, (pr.first-e0)/e1);
+  int b3 = GetBin(h, (pr.second-e0)/e1);
+  int b4 = GetBin(h, (sb1.first-e0)/e1);
+  int b5 = GetBin(h, (sb1.second-e0)/e1);
   TF1* f = new TF1("ftmp2", "pol0(0)+gaus(1)",
 		   h->GetBinCenter(b1), h->GetBinCenter(b4));
   f->SetLineColor(8);
@@ -216,6 +226,7 @@ pair<double, double> GetThRes(TH1D* h, pair<double, double> pr,
   f->SetParameter(2, ((pr.first+pr.second)/2-e0)/e1);
   f->SetParameter(3, 3/e1);
   f->SetParLimits(2, h->GetBinCenter(b2), h->GetBinCenter(b3));
+  f->SetParLimits(3, 0.0, 10*f->GetParameter(3));
   h->Fit(f, "QMR+");
   pair<double, double> res;
   res.first = f->GetParameter(3);
@@ -491,7 +502,9 @@ int main(int argc, char* argv[]){
     case 't':{ 
       string a = string(optarg);
       int chan = stoi(a.substr(0, a.find(",")));
-      thpeak[chan] = stoi(a.substr(a.find(",")+1, a.size()-1));
+      thpeak[chan] = stoi(a.substr(a.find(",")+1, a.size()-1-a.find(",")));
+      cout << "setting approximate Th peak position for "
+	   << chan << " to " << thpeak[chan] << endl;
       break;
     }
     case 'C': get_ct_decay = true; break;
@@ -706,7 +719,8 @@ int main(int argc, char* argv[]){
 				   henergyc1[i]->GetXaxis()->GetXmax());
 	    }
 	    for(int k=0; k<nct_steps; k++){
-	      dfrac[j][k] = pow(10, -10 + k*6./nct_steps);
+	      //dfrac[j][k] = pow(10, -10 + k*6./nct_steps);
+	      dfrac[j][k] = pow(10,  -8 + k*6./nct_steps);
 	      string n = "hct2_" + to_string(j) + "_" + to_string(k);
 	      hE2[j][k] = new TH1D(n.c_str(), "",
 				   henergyc1[i]->GetXaxis()->GetNbins(),
@@ -854,7 +868,8 @@ int main(int argc, char* argv[]){
 	SetJson(value, "dcre_slope",  dcre_slope[pr.second]);
 	SetJson(value, "dcr_cut_lo",  dcr_cut_lo[pr.second]);
 	SetJson(value, "dcr_cut_hi",  dcr_cut_hi[pr.second]);
-	for(int i=0; i<(int)chan_map.size(); i++){
+	//for(int i=0; i<(int)chan_map.size(); i++){
+	int i = pr.second;
 	  if(henergyf[i] == NULL) continue;
 	  int nebins = henergyf[i]->FindBin((1.e4-efoffset[i])/efscale[i]);
 	  double emin = efoffset[i];
@@ -875,7 +890,7 @@ int main(int argc, char* argv[]){
 	  }
 	  hecal[i]->SetXTitle("Energy (keV)");
 	  hecal[i]->SetYTitle("Entries");
-	}
+	  //}
       }
     }
     else{
@@ -1105,19 +1120,19 @@ int main(int argc, char* argv[]){
   for(auto const& ch : chan_cal){
     int i = chan_map[ch];
     cout << "channel " << ch << ":  " << endl;
-    print_value("base    ", 3, base_mean[i],     base_uncert[i]);
-    print_value("brms    ", 3, brms_mean[i],     brms_uncert[i]);
-    print_value("pz      ", 3, pz_mean[i],       pz_uncert[i]);
-    print_value("ct tau  ", 3, ct1_mean[i],      ct1_uncert[i]);
+    print_value("base    ", 4, base_mean[i],     base_uncert[i]);
+    print_value("brms    ", 4, brms_mean[i],     brms_uncert[i]);
+    print_value("pz      ", 4, pz_mean[i],       pz_uncert[i]);
+    print_value("ct tau  ", 4, ct1_mean[i],      ct1_uncert[i]);
     print_value("ct frac ", 6, ct2_mean[i],      ct2_uncert[i]);
-    print_value("avse p0 ", 3, avse_param[i][0], avse_uncert[i][0]);
-    print_value("avse p1 ", 3, avse_param[i][1], avse_uncert[i][1]);
-    print_value("avse p2 ", 3, avse_param[i][2], avse_uncert[i][2]);
-    print_value("avse j  ", 3, avse_param[i][3], avse_uncert[i][3]);
-    print_value("aoe min ", 3, aoe_min[i],       aoe_min_uncert[i]);
-    print_value("dcr  m  ", 3, dcre_slope[i],    dcre_uncert[i]);
-    print_value("dcr  lo ", 3, dcr_cut_lo[i],    0.0);
-    print_value("dcr  hi ", 3, dcr_cut_hi[i],    0.0);
+    print_value("avse p0 ", 4, avse_param[i][0], avse_uncert[i][0]);
+    print_value("avse p1 ", 4, avse_param[i][1], avse_uncert[i][1]);
+    print_value("avse p2 ", 4, avse_param[i][2], avse_uncert[i][2]);
+    print_value("avse j  ", 4, avse_param[i][3], avse_uncert[i][3]);
+    print_value("aoe min ", 4, aoe_min[i],       aoe_min_uncert[i]);
+    print_value("dcr  m  ", 4, dcre_slope[i],    dcre_uncert[i]);
+    print_value("dcr  lo ", 4, dcr_cut_lo[i],    0.0);
+    print_value("dcr  hi ", 4, dcr_cut_hi[i],    0.0);
   }
 
   // fixme - copy over other useful values from the below

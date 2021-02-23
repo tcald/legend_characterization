@@ -18,6 +18,7 @@
 #include <TLine.h>
 #include <TPolyMarker.h>
 #include <TStopwatch.h>
+#include <TObjString.h>
 #include <json/json.h>
 #include <json/value.h>
 #include <json/reader.h>
@@ -354,7 +355,7 @@ int main(int argc, char* argv[]){
     henergyc2[i]->SetXTitle("CT2 Fixed Time Pickoff (ADC)");
     henergyc2[i]->SetYTitle("Entries");
     hbase_energy[i] = new TH2D(("hbase_energy_"+s).c_str(), "",
-			       adcbins, 0.0, 10000.0, 400, -20.0, 20.0);
+			       adcbins, 0.0, 30000.0, 1000, -20.0, 20.0);
     hbase_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hbase_energy[i]->SetYTitle("Baseline (ADC)");
     hbase_deltat[i] = new TH2D(("hbase_deltat_"+s).c_str(), "",
@@ -362,35 +363,35 @@ int main(int argc, char* argv[]){
     hbase_deltat[i]->SetXTitle("#Deltat t (#mu s)");
     hbase_deltat[i]->SetYTitle("Baseline (ADC)");
     hbrms_deltat[i] = new TH2D(("hbrms_deltat_"+s).c_str(), "",
-				1000, 0.0, 1000.0, 100, 0.0, 40.0);
+				1000, 0.0, 1000.0, 400, 0.0, 40.0);
     hbrms_deltat[i]->SetXTitle("#Deltat t (#mu s)");
     hbrms_deltat[i]->SetYTitle("Baseline RMS (ADC)");
     hbrms_energy[i] = new TH2D(("hbrms_energy_"+s).c_str(), "",
-			       adcbins, 0.0, 10000.0, 400, 0.0, 40.0);
+			       adcbins, 0.0, 30000.0, 400, 0.0, 40.0);
     hbrms_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hbrms_energy[i]->SetYTitle("Baseline RMS (ADC)");
     hdecay_energy[i] = new TH2D(("hdecay_energy_"+s).c_str(), "",
-				adcbins, 0.0, 1<<nbits, 400, 0.0, 100.0);
+				adcbins, 0.0, 1<<nbits, 1600, 0.0, 800.0);
     hdecay_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hdecay_energy[i]->SetYTitle("Decay Constant (#mu s)");
     hdecay_deltat[i] = new TH2D(("hdecay_deltat_"+s).c_str(), "",
-				1000, 0.0, 1000.0, 400, 0.0, 100.0);
+				1000, 0.0, 1000.0, 1600, 0.0, 800.0);
     hdecay_deltat[i]->SetYTitle("Decay Constant (#mu s)");
     hdecay_deltat[i]->SetXTitle("#Delta t (#mu s)");
     hamp_energy[i] = new TH2D(("hamp_energy_"+s).c_str(), "",
-			      adcbins, 0.0, 10000.0, 500, 0.0, 5000.0);
+			      adcbins, 0.0, 30000.0, 500, 0.0, 15000.0);
     hamp_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hamp_energy[i]->SetYTitle("Maximum Current");
     haoe_energy[i] = new TH2D(("haoe_energy_"+s).c_str(), "",
-			      adcbins, 0.0, 10000.0, 500, 0.0, 2.0);
+			      adcbins, 0.0, 30000.0, 500, 0.0, 2.0);
     haoe_energy[i]->SetXTitle("Trap Maximum (ADC)");
     haoe_energy[i]->SetYTitle("Maximum Current / Trap Maximum");
     hdcr_energy[i] = new TH2D(("hdcr_energy_"+s).c_str(), "",
-			      adcbins, 0.0, 10000.0, 400, -100.0, 100.0);
+			      adcbins, 0.0, 30000.0, 400, -100.0, 100.0);
     hdcr_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hdcr_energy[i]->SetYTitle("Raw DCR Slope");
     hrise_energy[i] = new TH2D(("hrise_energy_"+s).c_str(), "",
-			       2*adcbins, 0.0, 10000.0, 1000, 0.0, 5000.0);
+			       2*adcbins, 0.0, 30000.0, 1000, 0.0, 5000.0);
     hrise_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hrise_energy[i]->SetYTitle("Rise Time (ns)");
     s = "_energyf_" + to_string(ch);
@@ -485,7 +486,7 @@ int main(int argc, char* argv[]){
 	  mwf[i][j]->SetParam("avse_nflat",mwf[i][j]->GetParam("avse_flat")/s);
 	  mwf[i][j]->SetWFDParam(wfi, "tlast", 0.0);
 	}
-      }    
+      }
       // check if we should process waveforms, if so, process and fit
       // if the gpu has enough memory, launch there, otherwise on cpu
       bool process = false;
@@ -507,11 +508,11 @@ int main(int argc, char* argv[]){
 	max_size = max(max_size, s);
       }
       if(max_size < GPUMemory()){
-	int c = cthread;
 	threads[cthread] = async(launch::async, [&]{
+	    const int c = cthread;
 	    vector<map<string, MultiWaveform*> > twf(chan_map.size());
 	    for(unsigned i=0; i<chan_map.size(); i++)
-	    twf[i] = ProcessMultiWaveformGPU(mwf[i][c], write_wf>0);
+	      twf[i] = ProcessMultiWaveformGPU(mwf[i][c], write_wf>0);
 	    return twf;});
 	bthread[cthread] = block_count;
 	sthread[cthread] = GPU_PROCESSING;
@@ -520,8 +521,8 @@ int main(int argc, char* argv[]){
       }
       #endif
       if(sthread[cthread] != GPU_PROCESSING){
-	int c = cthread;
 	threads[cthread] = async(launch::async, [&]{
+            const int c = cthread;
 	    vector<map<string, MultiWaveform*> > twf(chan_map.size());
 	    for(unsigned i=0; i<chan_map.size(); i++)
 	      twf[i] = ProcessMultiWaveform(mwf[i][c], write_wf>0, bthread[c]);
@@ -532,6 +533,7 @@ int main(int argc, char* argv[]){
 	     << " on CPU with thread " << cthread << endl;
 	this_thread::sleep_for(milliseconds(10));
       }
+      //wfs->Clear();
     }
     // check for finished blocks, wait for threads to finish if last event
     int min_proc = 1e9;
@@ -578,7 +580,6 @@ int main(int argc, char* argv[]){
       vector<int> chindex(chan_map.size(), 0);
       for(int jev=0; jev<(int)wfcount[mw_index].size(); jev++){
 	int nwf = wfcount[mw_index][jev];
-	if(nwf > 1) cout << nwf << endl;
 	// clear previous values
 	channel.assign(nwf, 0);
 	detserial.assign(nwf, "");
@@ -695,8 +696,8 @@ int main(int argc, char* argv[]){
 	  hbase_deltat[ich]->Fill(deltat[iwf]/1.e3, baseline[iwf]);
 	  hbrms_deltat[ich]->Fill(deltat[iwf]/1.e3, baserms[iwf]);
 	  hbrms_energy[ich]->Fill(trapmax[iwf],     baserms[iwf]);
-	  hdecay_energy[iwf]->Fill(trapmax[iwf],    decay_const[iwf]/1000);
-	  hdecay_deltat[iwf]->Fill(deltat[iwf]/1e3, decay_const[iwf]/1000);
+	  hdecay_energy[ich]->Fill(trapmax[iwf],    decay_const[iwf]/1000);
+	  hdecay_deltat[ich]->Fill(deltat[iwf]/1e3, decay_const[iwf]/1000);
 	  double ctE = ct1_trappick[iwf];
 	  if((int) mwf[ich][ith]->GetParam("ct_method")==2)
 	    ctE = ct2_trappick[iwf];
@@ -839,6 +840,7 @@ int main(int argc, char* argv[]){
 	  }
       }
     }
+    //event->ClearEventData();
     times[5] += pwatch.RealTime();
     pwatch.Start();
   }
