@@ -686,6 +686,8 @@ int main(int argc, char* argv[]){
   // determine the optimal charge trapping time constant
   const int nct_steps = 100;
   if(get_ct_decay){
+    cout << "optimizing charge trapping parameters, "
+	 << "this may take some time..." << endl;
     vector<vector<double> > ct(chan_map.size());
     vector<vector<double> > dfrac(chan_map.size());
     vector<vector<TH1D*> > hE1(chan_map.size());
