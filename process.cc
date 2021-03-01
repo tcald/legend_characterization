@@ -71,7 +71,7 @@ int main(int argc, char* argv[]){
   string jsonfname = "";
   int run_start = -1;
   int run_end = -1;
-  string infname = "";
+  vector<string> infname;
   bool float_ct = false;
   const int nct_steps = 20;
   int nbits = 16;
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]){
     case 'f': fnamebase   = string(optarg); break;
     case 'r': run_start   = atoi(optarg);   break;
     case 'R': run_end     = atoi(optarg);   break;
-    case 'i': infname     = string(optarg); break;
+    case 'i': infname.push_back(string(optarg)); break;
     case 'b': nbits       = atoi(optarg);   break;
     case 'w': write_wf    = atoi(optarg);   break;
     case 'C': float_ct    = true;           break;
@@ -143,7 +143,7 @@ int main(int argc, char* argv[]){
     opt = getopt_long(argc, argv,
 		      "hd:c:n:o:f:r:R:i:b:w:Cj:u:p:t:", opts, NULL);
   }
-  assert(infname != "" || (run_start > 0 && run_end > 0));
+  assert(infname.size() != 0 || (run_start > 0 && run_end > 0));
 
   // multi-waveforms for processing and default analysis parameters
   vector<vector<MultiWaveform*> >
@@ -408,9 +408,14 @@ int main(int argc, char* argv[]){
 
   // input reader
   TChain tree("MGTree", "MGTree");                                  
-  string fname = base_dir + "/" + fnamebase;                
-  if(infname != "") tree.Add(infname.c_str());
-  else
+  string fname = base_dir + "/" + fnamebase;
+  int fcount = 0;
+  for(auto const& f : infname)
+    if(f != ""){
+      tree.Add(f.c_str());
+      fcount ++;
+    }
+  if(fcount == 0)
     for(int irun=run_start; irun<=run_end; irun++)
       tree.Add((fname + to_string(irun) + ".root").c_str());
   int nentries = (int) tree.GetEntries();
