@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import optparse
@@ -13,10 +13,10 @@ ldir = 'build/'
 ddir = ldir
 bdir = 'bin/'
 
-cflags = '-std=c++11 -m64 -fPIC -Wall -pthread '
+cflags = '-std=c++14 -m64 -fPIC -Wall -pthread '
 nvflags = cflags
-include = '-I./ -I$ROOTSYS/include -I$CLHEP_INCLUDE_DIR -I/usr/include/jsoncpp '
-libs = '-L$ROOTSYS/lib -lCore -lImt -lRIO -lNet -lHist -lGraf -lGraf3d -lGpad -lROOTVecOps -lTree -lTreePlayer -lRint -lPostscript -lMatrix -lPhysics -lMathCore -lThread -lMultiProc -lROOTDataFrame -lMinuit -l jsoncpp '
+include = '-I./ -I$ROOTSYS/include -I$CLHEP_INCLUDE_DIR -I/home/tcald/sw/jsoncpp/include '
+libs = '-L$ROOTSYS/lib -lCore -lImt -lRIO -lNet -lHist -lGraf -lGraf3d -lGpad -lROOTVecOps -lTree -lTreePlayer -lRint -lPostscript -lMatrix -lPhysics -lMathCore -lThread -lMultiProc -lROOTDataFrame -lMinuit -L/home/tcald/sw/jsoncpp_build/lib -ljsoncpp '
 
 include += '-I$MGDODIR/Transforms -I$MGDODIR/MJDB -I$MGDODIR/Base -I$MGDODIR/Root -I$MGDODIR/Majorana -I$MGDODIR/tam/inc -I$MGDODIR/tam/include -I$MGDODIR/Tabree '
 libs += '-L$MGDODIR/lib -l MGDOTransforms -lMGDOMJDB -lMGDORoot -lMGDOBase -lMGDOMajorana -lMGDOTabree '
@@ -51,7 +51,7 @@ if nv != None:
         nvflags = nvflags.replace('-'+n+' ', '')
 
 def g(c):
-    print c
+    print(c)
     s = os.system(c)
     return
 
@@ -74,7 +74,7 @@ def c(r):
     if ltime > htime and ltime > ctime:
         return [sh, False]
     g('g++ '+cflags+include+'-c '+r+'.cc'+' -o '+ldir+f+'.o')
-    g('rootcling -f '+ddir+f+'Dict.cc -c '+'-I'+include+' '+r+'.hh '+s+'LinkDef.hh') 
+    g('rootcling -f '+ddir+f+'Dict.cc -c '+include+' '+r+'.hh '+s+'LinkDef.hh') 
     g('g++ '+cflags+include+'-c '+ddir+f+'Dict.cc -o '+ldir+f+'Dict.o')
     return [sh, True]
 

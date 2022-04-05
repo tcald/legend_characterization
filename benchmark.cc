@@ -14,6 +14,7 @@
 #include <map>
 #include <string>
 #include <iostream>
+#include <iomanip>
 #ifdef __CUDA
 #include "gutils.hh"
 #include <thrust/host_vector.h>

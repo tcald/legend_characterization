@@ -23,7 +23,10 @@
 #include <algorithm>
 #include <getopt.h>
 #include <assert.h>
+#include <iostream>
+#include <iomanip>
 #include <sstream>
+#include <fstream>
 
 using namespace std;
 
@@ -75,6 +78,8 @@ int main(int argc, char* argv[]){
   string write_dir = "";
   bool json_config = false;
   Json::Value jvalue;
+  double basemin = -1.0e9;
+  double basemax =  1.0e9;
   static struct option opts[]{
     {"help",           no_argument, NULL, 'h'},
     {"infile",   required_argument, NULL, 'i'},
@@ -82,16 +87,20 @@ int main(int argc, char* argv[]){
     {"channel",  required_argument, NULL, 'c'},
     {"source",   required_argument, NULL, 's'},
     {"writedir", required_argument, NULL, 'w'},
-    {"jsonfile", required_argument, NULL, 'j'}
+    {"jsonfile", required_argument, NULL, 'j'},
+    {"basemin",  required_argument, NULL, 'b'},
+    {"basemax",  required_argument, NULL, 'B'}
   };
-  int opt = getopt_long(argc, argv, "hi:o:c:s:w:j:", opts, NULL);
+  int opt = getopt_long(argc, argv, "hi:o:c:s:w:j:b:B:", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
-      cout << "options:"             << endl;
-      cout << "  -i input filename"  << endl;
-      cout << "  -o output filename" << endl;
-      cout << "  -c channel number"  << endl;
+      cout << "options:"              << endl;
+      cout << "  -i input filename"   << endl;
+      cout << "  -o output filename"  << endl;
+      cout << "  -c channel number"   << endl;
+      cout << "  -b minimum baseline" << endl;
+      cout << "  -B maximum baseline" << endl;
       return 0;
     case 'i': infname.push_back(string(optarg)); break;
     case 'o': outfname = string(optarg);         break;
@@ -126,9 +135,11 @@ int main(int argc, char* argv[]){
       jfile.close();
       break;						     
     }
+    case 'b': basemin = atof(optarg); break;
+    case 'B': basemax = atof(optarg); break;
     default: return 1;
     }
-    opt = getopt_long(argc, argv, "hi:o:c:s:w:j:", opts, NULL);
+    opt = getopt_long(argc, argv, "hi:o:c:s:w:j:b:B:", opts, NULL);
   }
   assert(infname.size() != 0 && outfname != "");
   if(peaks.size() == 0){
@@ -227,6 +238,7 @@ int main(int argc, char* argv[]){
   tree->SetBranchStatus("dcr", true);
   tree->SetBranchStatus("avse", true);
   tree->SetBranchStatus("aoe", true);
+  tree->SetBranchStatus("baseline", true);
   tree->SetBranchStatus("baseSigma", true);
   tree->SetBranchStatus("nbaserms", true);
   TTreeReader reader(tree);
@@ -238,6 +250,7 @@ int main(int argc, char* argv[]){
   TTreeReaderValue<vector<double> > dcr(reader, "dcr");
   TTreeReaderValue<vector<double> > avse(reader, "avse");
   TTreeReaderValue<vector<double> > aoe(reader, "aoe");
+  TTreeReaderValue<vector<double> > baseline(reader, "baseline");
   TTreeReaderValue<vector<double> > baseSigma(reader, "baseSigma");
   TTreeReaderValue<vector<double> > nbaserms(reader, "nbaserms");
 
@@ -275,8 +288,9 @@ int main(int argc, char* argv[]){
       if(find(det_serial.begin(), det_serial.end(), detserial->at(ich)) ==
 	 det_serial.end())
 	det_serial[i] = detserial->at(ich);
+      if(baseline->at(ich) < basemin || baseline->at(ich) > basemax) continue;
       //if(abs(baseSigma->at(ich)) > 5) continue;
-      //if(abs(nbaserms->at(ich)) > 5) continue;
+      //if(abs(nbaserms->at(ich)) > 10) continue;
       hdcrE[i]->Fill(trapEFCCal->at(ich), dcr->at(ich));
       //if(dcr->at(ich)<-1 || dcr->at(ich)>1) continue;
       hECal[i]->Fill(trapECal->at(ich));
@@ -389,7 +403,8 @@ int main(int argc, char* argv[]){
       for(auto const& p : chan_map)
 	if(p.second == i){ chan = p.first; break; }
       if(j == (int)detFWHM[i].size()-1)
-	cout << i << " " << chan << " " << detFWHM[i][j] << endl;
+	cout << i << " " << chan << " " << detFWHM[i][j] << " +/- "
+	     << detFWHMuncert[i][j] << endl;
       delete peak;
     }
     fpeak.push_back(vf);

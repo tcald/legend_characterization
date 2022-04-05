@@ -26,6 +26,7 @@
 #include <numeric>
 #include <functional>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <getopt.h>
 #include <assert.h>

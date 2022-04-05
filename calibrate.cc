@@ -20,6 +20,7 @@
 #include <utility>
 #include <algorithm>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <getopt.h>
 #include <assert.h>
@@ -93,7 +94,7 @@ void Th_scale2(TH1D* h, double& offset, double& scale, int peak=0){
   f1->SetParameters(base, h->GetBinContent(bin1),
 		    h->GetBinCenter(bin1), 2*bk);
   f1->FixParameter(0, base);
-  f1->SetParLimits(2, h->GetBinCenter(bin1)-bk/4, h->GetBinCenter(bin1)+bk/4);
+  f1->SetParLimits(2, h->GetBinCenter(bin1)-bk*4, h->GetBinCenter(bin1)+bk*4);
   h->Fit(f1, "QMR+");
   double val1 = f1->GetParameter(2);
   // find the maximum at the approximate position of 583 keV
@@ -115,7 +116,7 @@ void Th_scale2(TH1D* h, double& offset, double& scale, int peak=0){
   f0->SetParameters(base, h->GetBinContent(bin0)-base,
 		    h->GetBinCenter(bin0), bk);
   f0->FixParameter(0, base);
-  f0->SetParLimits(2, h->GetBinCenter(bin0)-bk/4, h->GetBinCenter(bin0)+bk/4);
+  f0->SetParLimits(2, h->GetBinCenter(bin0)-bk*4, h->GetBinCenter(bin0)+bk*4);
   h->Fit(f0, "QRM+");
   double val0 = f0->GetParameter(2);
   scale = (2615-583) / (val1-val0);
@@ -186,7 +187,7 @@ void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
   f0->SetParameter(2, h->GetBinCenter(imax));
   f0->SetParameter(3, 1.0/scale);
   f0->SetParLimits(2, f0->GetXmin(), f0->GetXmax());
-  f0->SetParLimits(3, f0->GetParameter(3)/4, f0->GetParameter(3)*4);
+  f0->SetParLimits(3, f0->GetParameter(3)/4, f0->GetParameter(3)*14);
   h->Fit(f0, "QMR+");
   TF1* f1 = new TF1("f1", "[0]+gaus(1)",
 		    h->GetXaxis()->GetBinLowEdge(jmax-2*n1),
@@ -196,7 +197,7 @@ void Th_scale(TH1D* h, double& offset, double& scale, int peak=0){
   f1->SetParameter(2, h->GetBinCenter(jmax));
   f1->SetParameter(3, 3.0/scale);
   f1->SetParLimits(2, f1->GetXmin(), f1->GetXmax());
-  f1->SetParLimits(3, f1->GetParameter(3)/4, f1->GetParameter(3)*4);
+  f1->SetParLimits(3, f1->GetParameter(3)/4, f1->GetParameter(3)*14);
   h->Fit(f1, "QMR+");
   scale  = (2615-583)/(f1->GetParameter(2)-f0->GetParameter(2));
   offset = 2615-scale*f1->GetParameter(2);
@@ -685,13 +686,14 @@ int main(int argc, char* argv[]){
 
   // determine the optimal charge trapping time constant
   const int nct_steps = 100;
+  vector<vector<TH1D*> > hE2(chan_map.size());
   if(get_ct_decay){
     cout << "optimizing charge trapping parameters, "
 	 << "this may take some time..." << endl;
     vector<vector<double> > ct(chan_map.size());
     vector<vector<double> > dfrac(chan_map.size());
     vector<vector<TH1D*> > hE1(chan_map.size());
-    vector<vector<TH1D*> > hE2(chan_map.size());
+    //vector<vector<TH1D*> > hE2(chan_map.size());
     bool first = true;
     bool valid = true;
     while(reader.Next()){
@@ -1122,9 +1124,9 @@ int main(int argc, char* argv[]){
   for(auto const& ch : chan_cal){
     int i = chan_map[ch];
     cout << "channel " << ch << ":  " << endl;
-    print_value("base    ", 4, base_mean[i],     base_uncert[i]);
+    print_value("base    ", 6, base_mean[i],     base_uncert[i]);
     print_value("brms    ", 4, brms_mean[i],     brms_uncert[i]);
-    print_value("pz      ", 4, pz_mean[i],       pz_uncert[i]);
+    print_value("pz      ", 6, pz_mean[i],       pz_uncert[i]);
     print_value("ct tau  ", 4, ct1_mean[i],      ct1_uncert[i]);
     print_value("ct frac ", 6, ct2_mean[i],      ct2_uncert[i]);
     print_value("avse p0 ", 4, avse_param[i][0], avse_uncert[i][0]);
@@ -1156,7 +1158,7 @@ int main(int argc, char* argv[]){
   int run, eventnum;
   vector<string> detserial;
   vector<int> chan;
-  vector<double> baseSigma, nbaserms, timestamp, dt, T0, trise;
+  vector<double> baseVal, baseSigma, nbaserms, timestamp, dt, T0, trise;
   vector<double> trapECal, trapEFCal, trapEFCCal, avse, aoe, dcr;
   TFile* outfile = new TFile(ofname.c_str(), "recreate");
   tdir->cd();
@@ -1165,6 +1167,7 @@ int main(int argc, char* argv[]){
   outtree->Branch("eventnum", &eventnum);
   outtree->Branch("detserial", &detserial);
   outtree->Branch("channel", &chan);
+  outtree->Branch("baseline", &baseVal);
   outtree->Branch("baseSigma", &baseSigma);
   outtree->Branch("nbaserms", &nbaserms);
   outtree->Branch("time", &timestamp);
@@ -1190,6 +1193,7 @@ int main(int argc, char* argv[]){
     int nwf = (int) channel->size();
     detserial.assign(nwf, "");
     chan.assign(nwf, 0);
+    baseVal.assign(nwf, 0.0);
     baseSigma.assign(nwf, 0.0);
     nbaserms.assign(nwf, 0.0);
     timestamp.assign(nwf, 0.0);
@@ -1209,6 +1213,7 @@ int main(int argc, char* argv[]){
 	 find(chan_skip.begin(), chan_skip.end(), chan[ich])!=chan_skip.end())
 	continue;
       int i = chan_map[chan[ich]];
+      baseVal[ich]   =  baseline->at(ich);
       baseSigma[ich] = (baseline->at(ich)-base_mean[i])/brms_mean[i];
       nbaserms[ich] = baserms->at(ich)/brms_mean[i];
       timestamp[ich] = times->at(ich);
@@ -1322,6 +1327,7 @@ int main(int argc, char* argv[]){
     if(gdcr[i])  gdcr[i]->Write();
     if(gresct1[i]) gresct1[i]->Write();
     if(gresct2[i]) gresct2[i]->Write();
+    //for(auto const& h : hE2[i]) h->Write();
   }
   outfile->WriteObject(&chan_map,    "chan_map");
   outfile->WriteObject(&base_mean,   "base_mean");
