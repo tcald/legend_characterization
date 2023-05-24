@@ -1355,7 +1355,7 @@ int main(int argc, char* argv[]){
     jvalue[s]["efscale"]    = efscale[i];
     jvalue[s]["efoffset"]   = efoffset[i];
     jvalue[s]["ecscale"]    = ecscale[i];
-    jvalue[s]["ecoffset"]   = ecscale[i];
+    jvalue[s]["ecoffset"]   = ecoffset[i];
     jvalue[s]["avse_p0"]    = avse_param[i][0];
     jvalue[s]["avse_p1"]    = avse_param[i][1];
     jvalue[s]["avse_p2"]    = avse_param[i][2];

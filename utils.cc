@@ -1,5 +1,6 @@
 #include "utils.hh"
 #include <MGWFPoleZeroCorrection.hh>
+#include "MGWFPZCorrector.hh"
 #include <MGWFTrapezoidalFilter.hh>
 #include <MGWFAsymTrapezoidalFilter.hh>
 #include <TStopwatch.h>
@@ -153,12 +154,14 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
   if(copy_wf){
     mwf["base_sub"]  = new MultiWaveform(*wf, false);
     mwf["pz_cor"]    = new MultiWaveform(*wf, false);
+    mwf["pz2_cor"]   = new MultiWaveform(*wf, false);
     mwf["pz_ct"]     = new MultiWaveform(*wf, false);
     mwf["slow_trap"] = new MultiWaveform(*wf, false);
     mwf["fast_trap"] = new MultiWaveform(*wf, false);
     mwf["avse_trap"] = new MultiWaveform(*wf, false);
     mwf["base_sub"]->ClearWaveforms();
     mwf["pz_cor"]->ClearWaveforms();
+    mwf["pz2_cor"]->ClearWaveforms();
     mwf["pz_ct"]->ClearWaveforms();
     mwf["slow_trap"]->ClearWaveforms();
     mwf["fast_trap"]->ClearWaveforms();
@@ -167,6 +170,12 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
   // mgdo transforms
   MGWFPoleZeroCorrection pz("mgwfpz_"+to_string(index));
   pz.SetDecayConstant(wf->GetParam("pz_decay"));
+  pz.SetDecayConstant2(wf->GetParam("pz2_decay"));
+  pz.SetDecayFraction2(0.0);
+  MGWFPZCorrector pz2("mgwfpz2_"+to_string(index));
+  pz2.SetDecay1(exp(-1.0/(wf->GetParam("pz_decay")/16)));
+  pz2.SetDecay2(exp(-1.0/(wf->GetParam("pz2_decay")/16)));
+  pz2.SetPercentOvershoot(0.0);//wf->GetParam("pz2_frac"));
   MGWFPoleZeroCorrection ct("mgwfpz_"+to_string(index));
   ct.SetDecayConstant(wf->GetParam("ct_decay"));
   MGWFTrapezoidalFilter strap(wf->GetParam("slow_rise"),
@@ -187,42 +196,86 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
     int nbase = (int) wf->GetParam("nbase_samples");
     wf->SetWFParam(iwf, "base", accumulate(v.begin()+4,
 					   v.begin()+4+nbase, 0.0)/nbase);
-    double base = wf->GetParam("resting_base");
+    double base = wf->GetWFParam(iwf, "base");//wf->GetParam("resting_base");
     for_each(v.begin(), v.end(), [&](double& s){ s-=base; });
     w->SetData(v);
-    wf->SetWFParam(iwf, "base_rms",
-		  sqrt(inner_product(v.begin()+4, v.begin()+4+nbase,
-				     v.begin()+4, 0.0)/nbase));
+    double base_rms = sqrt(inner_product(v.begin()+4, v.begin()+4+nbase,
+					 v.begin()+4, 0.0) / nbase);
+    wf->SetWFParam(iwf, "base_rms", base_rms);
     // fit the exponential tail
     vector<double> yfit(v.end()-wf->GetParam("nefit_samples")-4, v.end()-4);
     vector<double> xfit(yfit.size());
     iota(xfit.begin(), xfit.end(), 0.0);
     for_each(xfit.begin(), xfit.end(), [&](double& s){ s*=sampling; });
-    double xmean = xfit[xfit.size()/2];
-    if(xfit.size() % 2 == 0) xmean = (xmean+xfit[xfit.size()/2-1])/2.;
-    double s0 = 0.0;
-    double s1 = 0.0;
-    double s2 = 0.0;
-    for(unsigned i=0; i<xfit.size(); i++){
-      double x = xfit[i] - xmean;
-      double y = log(yfit[i]);
-      s0 += x * y;
-      s1 += x * xfit[i];
-      s2 += y;
+    double sx2y = 0.0, sylny = 0.0, sxy = 0.0, sxylny = 0.0, sy=0.0;
+    int nskip = 0;
+    for(size_t i=0; i<xfit.size(); i++){
+      double lny = 0.0;
+      if(yfit[i] > 0.0) lny = log(yfit[i]);
+      else{
+	nskip ++;
+	continue;
+      }
+      sx2y   += xfit[i] * xfit[i] * yfit[i];
+      sylny  += yfit[i] * lny;
+      sxy    += xfit[i] * yfit[i];
+      sxylny += xfit[i] * yfit[i] * lny;
+      sy     += yfit[i];
     }
-    double tau = -s1 / s0;
-    double a = exp(s2/xfit.size() + tau*xmean);
+    double a = exp((sx2y*sylny-sxy*sxylny) / (sy*sx2y-sxy*sxy));
+    double tau = -1 / ((sy*sxylny-sxy*sylny) / (sy*sx2y-sxy*sxy));
+    double exp_chi2 = 0.0;
+    for(size_t i=0; i<xfit.size(); i++){
+      if(yfit[i] <= 0) continue;
+      double dy = yfit[i] - a * exp(-xfit[i]/tau);
+      exp_chi2 += dy * dy;
+    }
+    exp_chi2 /= (xfit.size() - nskip - 2) * base_rms * base_rms;
+    a *= exp((v.size()-wf->GetParam("nefit_samples")-4) * sampling / tau);
     wf->SetWFParam(iwf, "decay_const", tau);
     wf->SetWFParam(iwf, "decay_amp", a);
+    wf->SetWFParam(iwf, "decay_chi2", exp_chi2);
+    wf->SetWFParam(iwf, "efit_min", (v.size()-xfit.size()-4)*sampling);
+    wf->SetWFParam(iwf, "efit_max", (v.size()-4)*sampling);
     // mgdo transforms
-    MGTWaveform twfp, twfs, twff, twfa, twfc, twfe;
+    MGTWaveform twfp, twfp2, twfs, twff, twfa, twfc, twfe;
     twff.SetTOffset(wf->GetParam("fast_flat")+wf->GetParam("fast_fall"));
     pz.TransformOutOfPlace(*w, twfp);
+    pz.SetDecayFraction2(wf->GetParam("pz2_frac"));
+    pz.TransformOutOfPlace(*w, twfp2);
     ct.TransformOutOfPlace(*w, twfc);
+    strap.TransformOutOfPlace(twfc, twfe);
+    // linear baseline correction
+    if((int) wf->GetParam("base_fit") == 1){
+      vector<double> vwfp = twfp.GetVectorData();
+      int nbase_fit = (int)min((size_t)wf->GetParam("nbase_fit"),vwfp.size());
+      double sx = 0.0, sy = 0.0, sxy = 0.0, sx2 = 0.0;
+      for(unsigned int x=0; x<(unsigned int)nbase_fit; x++){
+	sx  += x;
+	sy  += vwfp[x];
+	sxy += x*vwfp[x];
+	sx2 += x*x;
+      }
+      double d = nbase_fit * sx2 - sx * sx;
+      double b = (sx2 * sy - sx * sxy) / d;
+      double m = (nbase_fit * sxy - sx * sy) / d;
+      if((int) wf->GetParam("base_cor") == 1){
+	for(size_t x=0; x<vwfp.size(); x++) vwfp[x] -= b + m * x;
+	twfp.SetData(vwfp);
+      }
+      double chi2 = 0.0;
+      for(size_t x=0; x<vwfp.size(); x++){
+	double dy = vwfp[x] - (b + m * x);
+	chi2 += dy * dy;
+      }
+      chi2 /= (nbase_fit - 2) * base_rms * base_rms;
+      wf->SetWFParam(iwf, "baseslope", m / sampling);
+      wf->SetWFParam(iwf, "baseslope_chi2", chi2);
+	
+    }
     strap.TransformOutOfPlace(twfp, twfs);
     ftrap.TransformOutOfPlace(twfp, twff);
     atrap.TransformOutOfPlace(twfp, twfa);
-    strap.TransformOutOfPlace(twfc, twfe);
     // trapezoidal filter extrema
     v = twfs.GetVectorData();
     wf->SetWFParam(iwf, "trap_max", *max_element(v.begin(), v.end()));
@@ -302,10 +355,70 @@ map<string, MultiWaveform*> ProcessMultiWaveform(MultiWaveform* wf,
 	wf->SetWFParam(iwf, "ct1_trappick_"+to_string(ict),
 		      (float)tmp.GetVectorData()[pickoff]);
       }
+    // fit the fast exponential decay
+    if(pickoff >= v.size()-wf->GetParam("nefit_samples")-4){
+      wf->SetWFParam(iwf, "decay2_const", 0.0);
+      wf->SetWFParam(iwf, "decay2_amp", 0.0);
+      wf->SetWFParam(iwf, "decay2_offset", 0.0);
+      wf->SetWFParam(iwf, "decay2_chi2", 0.0);
+      wf->SetWFParam(iwf, "fefit_min", pickoff*sampling);
+      wf->SetWFParam(iwf, "fefit_max", pickoff*sampling);
+      wf->SetWFParam(iwf, "decay2_frac", 0.0);
+    }
+    else{
+      v = twfp.GetVectorData();
+      size_t bstart = (size_t) (wf->GetWFParam(iwf, "efit_min") / sampling);
+      double pzlate = accumulate(v.begin()+bstart,
+				 v.begin()+bstart+nbase, 0.0) / nbase;
+      for_each(v.begin(), v.end(), [&](double& s){ s-=pzlate; });
+      size_t end = (wf->GetWFParam(iwf, "efit_min")/sampling+pickoff)/2;
+      xfit.assign(end-pickoff, 0.0);
+      yfit.assign(xfit.size(), 0.0);
+      iota(xfit.begin(), xfit.end(), 0.0);
+      for_each(xfit.begin(), xfit.end(), [&](double& s){ s*=sampling; });
+      for(size_t i=0; i<yfit.size(); i++) yfit[i] = v[pickoff+i];
+      sx2y = 0.0; sylny = 0.0; sxy = 0.0; sxylny = 0.0; sy = 0.0;
+      nskip = 0;
+      for(size_t i=0; i<xfit.size(); i++){
+	double lny = 0.0;
+	if(yfit[i] > 0.0) lny = log(yfit[i]);
+	else{
+	  nskip ++;
+	  continue;
+	}
+	sx2y   += xfit[i] * xfit[i] * yfit[i];
+	sylny  += yfit[i] * lny;
+	sxy    += xfit[i] * yfit[i];
+	sxylny += xfit[i] * yfit[i] * lny;
+	sy     += yfit[i];
+      }
+      a = exp((sx2y*sylny-sxy*sxylny) / (sy*sx2y-sxy*sxy));
+      tau = -1 / ((sy*sxylny-sxy*sylny) / (sy*sx2y-sxy*sxy));
+      exp_chi2 = 0.0;
+      for(size_t i=0; i<xfit.size(); i++){
+	if(yfit[i] <= 0.0) continue;
+	double dy = yfit[i] - a * exp(-xfit[i]/tau);
+	exp_chi2 += dy * dy;
+      }
+      exp_chi2 /= (xfit.size() - nskip - 2) * base_rms * base_rms;
+      a *= exp(pickoff * sampling / tau);
+      wf->SetWFParam(iwf, "decay2_const", tau);
+      wf->SetWFParam(iwf, "decay2_amp", a);
+      wf->SetWFParam(iwf, "decay2_offset", pzlate);
+      wf->SetWFParam(iwf, "decay2_chi2", exp_chi2);
+      wf->SetWFParam(iwf, "fefit_min", pickoff*sampling);
+      wf->SetWFParam(iwf, "fefit_max", (pickoff+xfit.size())*sampling);
+      double a0 = wf->GetWFParam(iwf, "decay_const") *
+	exp(-t99*sampling / wf->GetWFParam(iwf, "decay_amp"));
+      double a1 = wf->GetWFParam(iwf, "decay2_const") *
+	exp(-t99*sampling / wf->GetWFParam(iwf, "decay2_amp"));
+      wf->SetWFParam(iwf, "decay2_frac", a1/(a0+a1));
+    }
     // copy the transformed waveforms to the return map
     if(copy_wf){
       mwf["base_sub"]->AddWaveform(w);
       mwf["pz_cor"]->AddWaveform(twfp);
+      mwf["pz2_cor"]->AddWaveform(twfp2);
       mwf["pz_ct"]->AddWaveform(twfe);
       mwf["slow_trap"]->AddWaveform(twfs);
       mwf["fast_trap"]->AddWaveform(twff);

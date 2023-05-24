@@ -12,6 +12,7 @@
 #include <TTreeReaderValue.h>
 #include <TH1.h>
 #include <TH2.h>
+#include <TF1.h>
 #include <TCanvas.h>
 #include <TROOT.h>
 #include <TStyle.h>
@@ -64,7 +65,6 @@ int main(int argc, char* argv[]){
   
   // option handling
   map<int, int> chan_map;
-  vector<string> serial_numbers;
   string base_dir = "";
   int max_wf = 0;
   string outfname = "";
@@ -77,6 +77,7 @@ int main(int argc, char* argv[]){
   const int nct_steps = 20;
   int nbits = 16;
   int write_wf = 0;
+  double ecut = -1.0e18;
   int update_percentage = 5;
   int process_block = 100000;
   int max_threads = 4;
@@ -92,6 +93,7 @@ int main(int argc, char* argv[]){
     {"infile",     required_argument, NULL, 'i'},
     {"bits",       required_argument, NULL, 'b'},
     {"writewf",    required_argument, NULL, 'w'},
+    {"ecut",       required_argument, NULL, 'e'},
     {"decayconst",       no_argument, NULL, 'D'},
     {"chargetrap",       no_argument, NULL, 'C'},
     {"jsoncofig",  required_argument, NULL, 'j'},
@@ -100,7 +102,7 @@ int main(int argc, char* argv[]){
     {"threads",       required_argument, NULL, 't'}
   };
   int opt = getopt_long(argc, argv,
-			"hd:c:n:o:f:r:R:i:b:w:Cj:u:p:t:", opts, NULL);
+			"hd:c:n:o:f:r:R:i:b:w:e:Cj:u:p:t:", opts, NULL);
   while(opt != -1){
     switch(opt){
     case 'h':
@@ -115,6 +117,7 @@ int main(int argc, char* argv[]){
       cout << "  -n number of events to analyze"     << endl;
       cout << "  -b number of ADC bits"              << endl;
       cout << "  -w plot every n'th wf"              << endl;
+      cout << "  -e energy cut for plotting"         << endl;
       cout << "  -C vary charge trapping correction" << endl;
       cout << "  -j name of json configuration file" << endl;
       cout << "  -u update interval (percentage)"    << endl;
@@ -134,6 +137,7 @@ int main(int argc, char* argv[]){
     case 'i': infname.push_back(string(optarg)); break;
     case 'b': nbits       = atoi(optarg);   break;
     case 'w': write_wf    = atoi(optarg);   break;
+    case 'e': ecut        = atof(optarg);   break;
     case 'C': float_ct    = true;           break;
     case 'j': jsonfname   = string(optarg); break;
     case 'u': update_percentage = atoi(optarg); break;
@@ -142,9 +146,35 @@ int main(int argc, char* argv[]){
     default: return 1;
     }
     opt = getopt_long(argc, argv,
-		      "hd:c:n:o:f:r:R:i:b:w:Cj:u:p:t:", opts, NULL);
+		      "hd:c:n:o:f:r:R:i:b:w:e:Cj:u:p:t:", opts, NULL);
   }
   assert(infname.size() != 0 || (run_start > 0 && run_end > 0));
+
+  // read the json configuration file if provided
+  Json::Value jvalue;
+  vector<int> channels;
+  vector<string> detectors;
+  if(jsonfname != ""){
+    ifstream jfile(jsonfname);
+    Json::CharReaderBuilder jreader;
+    string jerrors;
+    if(!Json::parseFromStream(jreader, jfile, &jvalue, &jerrors)){
+      cout << jerrors << endl;
+      return 2;
+    }
+    jfile.close();
+    SetJson(jvalue, "channel_id", channels);
+    SetJson(jvalue, "det_serial", detectors);
+    assert(channels.size() == detectors.size());
+    if(chan_map.size() == 0){
+      cout << "no user specified channel(s), attempting to use channel_id "
+	   << "list from configuration file" << endl;
+      for(auto const& i : channels){
+	unsigned s = chan_map.size();
+	chan_map[i] = s;
+      }
+    }
+  }
 
   // multi-waveforms for processing and default analysis parameters
   vector<vector<MultiWaveform*> >
@@ -170,43 +200,26 @@ int main(int argc, char* argv[]){
       wf->SetParam("avse_flat", 300.0);
       wf->SetParam("t0_thresh", 2.0);
       wf->SetParam("pz_decay", 58000.0);
+      wf->SetParam("pz2_decay", 58000.0);
+      wf->SetParam("pz2_frac",  0.0);
       wf->SetParam("ct_offset", 2000.0);
       wf->SetParam("ct_time", 100000.0);
       wf->SetParam("ct_frac", 1.0e-8);
       wf->SetParam("resting_base", 0.0);
       wf->SetParam("nbase_samples", 200);
+      wf->SetParam("base_fit", 1);
+      wf->SetParam("nbase_fit", 200);
+      wf->SetParam("base_cor", 0);
       wf->SetParam("nefit_samples", 300);
       wf->SetParam("ndcr_samples", 100);
       wf->SetParam("ct_method", 2);
     }
   
   // read the json configuration file if provided
-  Json::Value jvalue;
   if(jsonfname != ""){
-    ifstream jfile(jsonfname);
-    Json::CharReaderBuilder jreader;
-    string jerrors;
-    if(!Json::parseFromStream(jreader, jfile, &jvalue, &jerrors)){
-      cout << jerrors << endl;
-      return 2;
-    }
-    jfile.close();
-    vector<int> channels;
-    vector<string> detectors;
-    SetJson(jvalue, "channel_id", channels);
-    SetJson(jvalue, "det_serial", detectors);
-    assert(channels.size() == detectors.size());
-    if(chan_map.size() == 0){
-      cout << "no user specified channel(s), attempting to use channel_id "
-	   << "list from configuration file" << endl;
-      for(auto const& i : channels){
-	unsigned s = chan_map.size();
-	chan_map[i] = s;
-      }
-    }
     for(auto const& pr : chan_map){
       vector<int>::iterator i = std::find(channels.begin(),
-				     channels.end(), pr.first);
+					  channels.end(), pr.first);
       if(i == channels.end()){
 	cout <<"channel "<<pr.first<<" not found in "<<jsonfname<<endl;
 	return 3;
@@ -217,7 +230,6 @@ int main(int argc, char* argv[]){
 	     << jsonfname << endl;
 	return 3;
       }
-      serial_numbers.push_back(detectors[index]);
       Json::Value value = jvalue[detectors[index]];
       cout << "reading parameters for channel " << pr.first << " detector "
 	   << detectors[index] << endl;
@@ -231,6 +243,8 @@ int main(int argc, char* argv[]){
 	wf->SetParam("avse_rise", GetJsonD(value, "avse_ramp", v));
 	wf->SetParam("avse_flat", GetJsonD(value, "avse_flat", v));
 	wf->SetParam("pz_decay",  GetJsonD(value, "pz_decay", v));
+	wf->SetParam("pz2_decay", GetJsonD(value, "pz2_decay", v));
+	wf->SetParam("pz2_frac",  GetJsonD(value, "pz2_frac", v));
 	wf->SetParam("t0_thresh", GetJsonD(value, "t0_thresh", v));
 	wf->SetParam("ct_offset", GetJsonD(value, "ct_offset", v));
 	wf->SetParam("ct_method", GetJsonI(value, "ct_method", v));
@@ -238,6 +252,9 @@ int main(int argc, char* argv[]){
 	wf->SetParam("ct_frac",   GetJsonD(value, "ct_frac", v));
 	wf->SetParam("resting_base",  GetJsonD(value, "resting_base", v));
 	wf->SetParam("nbase_samples", GetJsonI(value, "nbase_samples", v));
+	wf->SetParam("base_fit",      GetJsonI(value, "base_fit", v));
+	wf->SetParam("nbase_fit",     GetJsonI(value, "nbase_fit", v));
+	wf->SetParam("base_cor",      GetJsonI(value, "base_cor", v));
 	wf->SetParam("nefit_samples", GetJsonI(value, "nefit_samples", v));
 	wf->SetParam("ndcr_samples",  GetJsonI(value, "ndcr_samples", v));
 	v = false;
@@ -272,6 +289,8 @@ int main(int argc, char* argv[]){
   vector<double> baseline, baserms, trappick, ct1_trappick, ct2_trappick;
   vector<double> t0, t1, t10, t50, t90, t99, imax, dcrslope, pickoff;
   vector<double> trapmax, time, deltat, stime, ct_integral, decay_const;
+  vector<double> baseslope, baseslope_chi2, decay_chi2;
+  vector<double> decay2_const, decay2_frac, decay2_chi2;
   vector<vector<double> > ct_decay, ct_value;
   TFile* outfile = new TFile(outfname.c_str(), "recreate");
   if(write_wf)
@@ -285,6 +304,8 @@ int main(int argc, char* argv[]){
   outtree->Branch("channel", &channel);
   outtree->Branch("baseline", &baseline);
   outtree->Branch("baserms", &baserms);
+  outtree->Branch("baseslope", &baseslope);
+  outtree->Branch("baseslope_chi2", &baseslope_chi2);
   outtree->Branch("t0", &t0);
   outtree->Branch("t1", &t1);
   outtree->Branch("t10", &t10);
@@ -302,6 +323,10 @@ int main(int argc, char* argv[]){
   outtree->Branch("deltat", &deltat);
   outtree->Branch("sampling", &stime);
   outtree->Branch("decay_const", &decay_const);
+  outtree->Branch("decay_chi2", &decay_chi2);
+  outtree->Branch("decay2_const", &decay2_const);
+  outtree->Branch("decay2_frac", &decay2_frac);
+  outtree->Branch("decay2_chi2", &decay2_chi2);
   outtree->Branch("ct_integral", &ct_integral);
   outtree->Branch("ct_decay", &ct_decay);
   outtree->Branch("ct_value", &ct_value);
@@ -313,12 +338,16 @@ int main(int argc, char* argv[]){
   vector<TH1D*> henergyf(chan_map.size(), NULL);
   vector<TH1D*> henergyc1(chan_map.size(), NULL);
   vector<TH1D*> henergyc2(chan_map.size(), NULL);
+  vector<TH1D*> hbaseslope(chan_map.size(), NULL);
+  vector<TH1D*> hbaseslope_chi2(chan_map.size(), NULL);
+  vector<TH1D*> hdecay_chi2(chan_map.size(), NULL);
   vector<TH2D*> hbase_energy(chan_map.size(), NULL);
   vector<TH2D*> hbase_deltat(chan_map.size(), NULL);
   vector<TH2D*> hbrms_deltat(chan_map.size(), NULL);
   vector<TH2D*> hbrms_energy(chan_map.size(), NULL);
   vector<TH2D*> hdecay_energy(chan_map.size(), NULL);
   vector<TH2D*> hdecay_deltat(chan_map.size(), NULL);
+  vector<TH2D*> hdecay_chi2_energy(chan_map.size(), NULL);
   vector<TH2D*> hamp_energy(chan_map.size(), NULL);
   vector<TH2D*> haoe_energy(chan_map.size(), NULL);
   vector<TH2D*> hdcr_energy(chan_map.size(), NULL);
@@ -331,7 +360,7 @@ int main(int argc, char* argv[]){
   vector<TH2D*> haoe_energyc(chan_map.size(), NULL);
   vector<TH2D*> hdcr_energyc(chan_map.size(), NULL);
   vector<TH2D*> hrise_energyc(chan_map.size(), NULL);
-  int adcbins = (1<<nbits) / 16;
+  int adcbins = (1<<nbits) / 32;
   for(auto const& pr : chan_map){
     int ch = pr.first;
     int i = pr.second;
@@ -355,6 +384,18 @@ int main(int argc, char* argv[]){
 			    2*(1<<nbits), 0.0, 1<<nbits);
     henergyc2[i]->SetXTitle("CT2 Fixed Time Pickoff (ADC)");
     henergyc2[i]->SetYTitle("Entries");
+    hbaseslope[i] = new TH1D(("hbaseslope_"+s).c_str(), "",
+			     1000, -10.0, 10.0);
+    hbaseslope[i]->SetXTitle("Baseline Slope (ADC / ns)");
+    hbaseslope[i]->SetYTitle("Entries");
+    hbaseslope_chi2[i] = new TH1D(("hbaseslope_chi2_"+s).c_str(), "",
+				  1000, -50.0, 50.0);
+    hbaseslope_chi2[i]->SetXTitle("Baselne Slope #chi^{2}");
+    hbaseslope_chi2[i]->SetYTitle("Entries");
+    hdecay_chi2[i] = new TH1D(("hdecay_chi2_"+s).c_str(), "",
+			      1000, -50.0, 50.0);
+    hdecay_chi2[i]->SetXTitle("Decay Fit #chi^{2}");
+    hdecay_chi2[i]->SetYTitle("Entries");
     hbase_energy[i] = new TH2D(("hbase_energy_"+s).c_str(), "",
 			       adcbins, 0.0, 30000.0, 1000, -20.0, 20.0);
     hbase_energy[i]->SetXTitle("Trap Maximum (ADC)");
@@ -372,13 +413,15 @@ int main(int argc, char* argv[]){
     hbrms_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hbrms_energy[i]->SetYTitle("Baseline RMS (ADC)");
     hdecay_energy[i] = new TH2D(("hdecay_energy_"+s).c_str(), "",
-				adcbins, 0.0, 1<<nbits, 1600, 0.0, 800.0);
+				adcbins, 0.0, 1<<nbits, 400, 0.0, 800.0);
     hdecay_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hdecay_energy[i]->SetYTitle("Decay Constant (#mu s)");
     hdecay_deltat[i] = new TH2D(("hdecay_deltat_"+s).c_str(), "",
-				1000, 0.0, 1000.0, 1600, 0.0, 800.0);
+				1000, 0.0, 1000.0, 800, 0.0, 800.0);
     hdecay_deltat[i]->SetYTitle("Decay Constant (#mu s)");
     hdecay_deltat[i]->SetXTitle("#Delta t (#mu s)");
+    hdecay_chi2_energy[i] = new TH2D(("hdecay_chi2_energy"+s).c_str(), "",
+				     adcbins, 0.0, 1<<nbits, 500, 0.0, 50.0);
     hamp_energy[i] = new TH2D(("hamp_energy_"+s).c_str(), "",
 			      adcbins, 0.0, 30000.0, 500, 0.0, 15000.0);
     hamp_energy[i]->SetXTitle("Trap Maximum (ADC)");
@@ -392,7 +435,7 @@ int main(int argc, char* argv[]){
     hdcr_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hdcr_energy[i]->SetYTitle("Raw DCR Slope");
     hrise_energy[i] = new TH2D(("hrise_energy_"+s).c_str(), "",
-			       2*adcbins, 0.0, 30000.0, 1000, 0.0, 5000.0);
+			       adcbins, 0.0, 30000.0, 500, 0.0, 5000.0);
     hrise_energy[i]->SetXTitle("Trap Maximum (ADC)");
     hrise_energy[i]->SetYTitle("Rise Time (ns)");
     s = "_energyf_" + to_string(ch);
@@ -591,6 +634,8 @@ int main(int argc, char* argv[]){
 	detserial.assign(nwf, "");
 	baseline.assign(nwf, 0.0);
 	baserms.assign(nwf, 0.0);
+	baseslope.assign(nwf, 0.0);
+	baseslope_chi2.assign(nwf, 0.0);
 	t0.assign(nwf, 0.0);
 	t1.assign(nwf, 0.0);
 	t10.assign(nwf, 0.0);
@@ -605,6 +650,10 @@ int main(int argc, char* argv[]){
 	time.assign(nwf, 0.0);
 	deltat.assign(nwf, 0.0);
 	decay_const.assign(nwf, 0.0);
+	decay_chi2.assign(nwf, 0.0);
+	decay2_const.assign(nwf, 0.0);
+	decay2_frac.assign(nwf, 0.0);
+	decay2_chi2.assign(nwf, 0.0);
 	trappick.assign(nwf, 0.0);
 	ct1_trappick.assign(nwf, 0.0);
 	ct2_trappick.assign(nwf, 0.0);
@@ -641,10 +690,8 @@ int main(int argc, char* argv[]){
 	      channel[iwf] = pr.first;
 	      break;
 	    }
-	  detserial[iwf] = serial_numbers[ich];
+	  detserial[iwf] = detectors[ich];
 	  wf_count[ich] ++;
-	  bool write = false;
-	  if(write_wf>0) if(wf_count[ich] % write_wf == 0) write = true;
 	  int jwf = chindex[ich];
 	  eventnum          = (int) mwf[ich][ith]->GetWFParam(jwf, "eventnum");
 	  run               = (int) mwf[ich][ith]->GetWFParam(jwf, "run");
@@ -654,6 +701,9 @@ int main(int argc, char* argv[]){
 	  deltat[iwf]     = time[iwf]-mwf[ich][ith]->GetWFDParam(jwf, "tlast");
 	  baseline[iwf]     = mwf[ich][ith]->GetWFParam(jwf, "base");
 	  baserms[iwf]      = mwf[ich][ith]->GetWFParam(jwf, "base_rms");
+	  baseslope[iwf]    = mwf[ich][ith]->GetWFParam(jwf, "baseslope");
+	  baseslope_chi2[iwf]   =
+	    mwf[ich][ith]->GetWFParam(jwf, "baseslope_chi2");
 	  trapmax[iwf]      = mwf[ich][ith]->GetWFParam(jwf, "trap_max");
 	  trappick[iwf]     = mwf[ich][ith]->GetWFParam(jwf, "trappick");
 	  imax[iwf]         = mwf[ich][ith]->GetWFParam(jwf, "imax");
@@ -669,6 +719,10 @@ int main(int argc, char* argv[]){
 	  ct2_trappick[iwf] = mwf[ich][ith]->GetWFParam(jwf, "ct2_trappick");
 	  dcrslope[iwf]     = mwf[ich][ith]->GetWFParam(jwf, "dcrslope");
 	  decay_const[iwf]  = mwf[ich][ith]->GetWFParam(jwf, "decay_const");
+	  decay_chi2[iwf]   = mwf[ich][ith]->GetWFParam(jwf, "decay_chi2");
+	  decay2_const[iwf] = mwf[ich][ith]->GetWFParam(jwf, "decay2_const");
+	  decay2_frac[iwf]  = mwf[ich][ith]->GetWFParam(jwf, "decay2_frac");
+	  decay2_chi2[iwf]  = mwf[ich][ith]->GetWFParam(jwf, "decay2_chi2");
 	  if(!rebin_base[ich]){
 	    // rebin baseline histograms based on the first 100 events
 	    if(baselines[ich].size() < 100)
@@ -711,6 +765,10 @@ int main(int argc, char* argv[]){
 	  henergyf[ich]->Fill(trappick[iwf]);
 	  henergyc1[ich]->Fill(ct1_trappick[iwf]);
 	  henergyc2[ich]->Fill(ct2_trappick[iwf]);
+	  hbaseslope[ich]->Fill(baseslope[iwf]);
+	  hbaseslope_chi2[ich]->Fill(baseslope_chi2[iwf]);
+	  hdecay_chi2[ich]->Fill(decay_chi2[iwf]);
+	  hdecay_chi2_energy[ich]->Fill(trappick[iwf], decay_chi2[iwf]);
 	  hamp_energy[ich]->Fill(trapmax[iwf], imax[iwf]);
 	  hamp_energyf[ich]->Fill(trappick[iwf], imax[iwf]);
 	  hamp_energyc[ich]->Fill(ctE, imax[iwf]);
@@ -726,22 +784,47 @@ int main(int argc, char* argv[]){
 	  hdcr_energyf[ich]->Fill(trappick[iwf], dcrslope[iwf]);
 	  hdcr_energyc[ich]->Fill(ctE, dcrslope[iwf]);
 	  if(float_ct)
-	    for(int i=0; i<=nct_steps; i++){
+	    for(int i=0; i<nct_steps; i++){
 	      ct_decay[iwf][i] = mwf[ich][ith]->GetParam("ct_decay_" +
 							to_string(i));
 	      ct_value[iwf][i] =
 		mwf[ich][ith]->GetWFParam(jwf, "ct1_trappick_"+to_string(i));
 	    }
+	  bool write = false;
+	  if(write_wf>0)
+	    if((wf_count[ich] % write_wf) == 0 && trapmax[iwf] > ecut)
+	      write = true;
 	  // plot waveform and write to output file
 	  if(write){
 	    string s = "wf_"+to_string(lprocess+jev)+"_"+to_string(ich)+"_";
 	    double sampling = mwf[ich][ith]->GetParam("sampling");
 	    TH1D* hwf = GetWFHist(twf[ich]["base_sub"],  jwf, s+"wf");
 	    TH1D* hpz = GetWFHist(twf[ich]["pz_cor"],    jwf, s+"pz");
+	    TH1D* hpz2= GetWFHist(twf[ich]["pz2_cor"],   jwf, s+"pz2");
 	    TH1D* hft = GetWFHist(twf[ich]["fast_trap"], jwf, s+"ft");
 	    TH1D* hst = GetWFHist(twf[ich]["slow_trap"], jwf, s+"st");
 	    TH1D* hat = GetWFHist(twf[ich]["avse_trap"], jwf, s+"at");
 	    TH1D* hct = GetWFHist(twf[ich]["pz_ct"],     jwf, s+"ct");
+	    TF1*  fdc = new TF1("fdecay", "[0]*exp(-x/[1])",
+				mwf[ich][ith]->GetWFParam(jwf, "efit_min"),
+				mwf[ich][ith]->GetWFParam(jwf, "efit_max"));
+	    fdc->SetParameter(0, mwf[ich][ith]->GetWFParam(jwf,"decay_amp"));
+	    fdc->SetParameter(1, mwf[ich][ith]->GetWFParam(jwf,"decay_const"));
+	    fdc->SetNpx(2 * mwf[ich][ith]->GetParam("nefit_samples"));
+	    TF1* fdc2 = NULL;
+	    if(mwf[ich][ith]->GetParam("pz2_decay") > 0.0 &&
+	       mwf[ich][ith]->GetParam("pz2_frac") != 0.0){
+	      double xmin = mwf[ich][ith]->GetWFParam(jwf, "fefit_min");
+	      double xmax = mwf[ich][ith]->GetWFParam(jwf, "fefit_max");
+	      if(xmax > xmin){
+		fdc2 = new TF1("fdecay2", "[0]*exp(-x/[1])+[2]", xmin, xmax);
+		fdc2->SetParameter(0, mwf[ich][ith]->GetWFParam(jwf,"decay2_amp"));
+		fdc2->SetParameter(1, mwf[ich][ith]->GetWFParam(jwf,"decay2_const"));
+		fdc2->SetParameter(2, mwf[ich][ith]->GetWFParam(jwf,"decay2_offset"));
+		cout << fdc2->GetParameter(0) << " " << fdc2->GetParameter(1) << " " << fdc2->GetParameter(2) << " " << xmin << " " << xmax << endl;
+		fdc2->SetNpx(max(4, (int) ((xmax-xmin)/sampling)));
+	      }
+	    }
 	    TPolyMarker* marker = new TPolyMarker(7);
 	    marker->SetMarkerSize(0.8);
 	    marker->SetMarkerStyle(4);
@@ -771,6 +854,20 @@ int main(int argc, char* argv[]){
 	    hct->SetLineColor(1);
 	    hct->SetMarkerColor(1);
 	    hct->Draw("same");
+	    fdc->SetLineColor(28);
+	    fdc->SetLineWidth(2);
+	    fdc->Draw("same L");
+	    if(fdc2){
+	      //for(int i=1; i<= hpz2->GetNbinsX(); i++) cout << hpz2->GetBinContent(i) << " ";
+	      //cout << endl; getchar();
+	      hpz2->SetLineColor(28);
+	      hpz2->SetMarkerColor(28);
+	      hpz2->Draw("same");
+	      fdc2->SetLineColor(28);
+	      fdc2->SetLineWidth(2);
+	      fdc2->Draw("same L");
+	    }
+	    c->Update();
 	    int foff =
 	      (int)(twf[ich]["fast_trap"]->GetParam("fast_flat") +
 		    twf[ich]["fast_trap"]->GetParam("fast_fall"))/sampling;
@@ -796,10 +893,13 @@ int main(int argc, char* argv[]){
 	    c->Write();
 	    tdir->cd();
 	    delete hpz;
+	    delete hpz2;
 	    delete hft;
 	    delete hst;
 	    delete hat;
 	    delete hct;
+	    delete fdc;
+	    if(fdc2) delete fdc2;
 	    delete marker;
 	    delete marker2;
 	    delete c;
@@ -860,12 +960,16 @@ int main(int argc, char* argv[]){
     if(henergyf[i]) henergyf[i]->Write();
     if(henergyc1[i]) henergyc1[i]->Write();
     if(henergyc2[i]) henergyc2[i]->Write();
+    if(hbaseslope[i]) hbaseslope[i]->Write();
+    if(hbaseslope_chi2[i]) hbaseslope_chi2[i]->Write();
+    if(hdecay_chi2[i]) hdecay_chi2[i]->Write();
     if(hbase_energy[i]) hbase_energy[i]->Write(hbase_energy[i]->GetName());
     if(hbase_deltat[i]) hbase_deltat[i]->Write(hbase_deltat[i]->GetName());
     if(hbrms_deltat[i]) hbrms_deltat[i]->Write(hbrms_deltat[i]->GetName());
     if(hbrms_energy[i]) hbrms_energy[i]->Write();
     if(hdecay_energy[i]) hdecay_energy[i]->Write();
     if(hdecay_deltat[i]) hdecay_deltat[i]->Write();
+    if(hdecay_chi2_energy[i]) hdecay_chi2_energy[i]->Write();
     if(hamp_energy[i]) hamp_energy[i]->Write();
     if(haoe_energy[i]) haoe_energy[i]->Write();
     if(hdcr_energy[i]) hdcr_energy[i]->Write();
